@@ -1,12 +1,345 @@
 import numpy as np
 import glob
 import os
-from scipy import stats
+from scipy import stats, optimize
 from scipy.signal import savgol_filter
 import copy
 import warnings
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from itertools import compress
+from numpy.polynomial import polynomial
+
+
+def parabola(x, a, b, c, LR):
+    return a*(x-LR)**2 + b*(x-LR) + c
+
+def consecutive(data, stepsize=1):
+    "Return groups of consecutive elements"
+    return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
+
+
+def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units='nm', zpos_negative=True, max_to_process=None,
+                         number_of_curves_before_equil=1, override_involS=False, override_spring_constant=False, debug=False):
+    """
+    Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
+    tip-separation and force curves.
+    
+    
+    Parameters
+    ----------
+    zpos (list):
+        list of Z piezo position, provided by the AFM. Must be the same length as defl. Each entry within zpos must
+        also be the same length as the corresponding entry in defl.
+
+    defl (list):
+        list of deflection, in either nanometers or milli volts. Ensure that defl_units are set correctly. Must be the
+        same length as zpos. Each entry within defl must also be the same length as the corresponding entry in zpos.
+        
+    metadict (dict):
+        dictionary containing metadata relating to the force curve map. At a minimum, must contain:
+            'SpringConstant' (float) : spring constant of the cantilever (will default to 1 if not supplied)
+            'InvOLS' (float) : optical sensitivity of the system (required only if defl_units='nm')
+                 
+    zpos_units (string):
+        Units of defl input. Must be one of 'm' (meters), 'mm' (millimeters), 'um' (micrometers), or 'nm' (nanometers).
+        Output will always be in nanometers
+    
+    zpos_negative (bool):
+        Whether or not the zpos is given as a negative value (distance from the substrate) or a positive value (distance to
+        the substrate) 
+
+    defl_units (string):
+        Units of defl input. Must be one of 'm' (meters), 'nm' (nanometers), 'V' (volts), or 'mV' (milli volts).
+        Output defl will always be in nanometers
+    
+    max_to_process (int, or None):
+        Maximum number of zpos and defl pairs to process. Useful for testing.
+        
+    number_of_curves_before_equil (int):
+        Number of forcecurves to discard at the start of zpos and defl, useful as the first force curves can sometimes 
+        be erroneous. Takes zpos = zpos[number_of_curves_before_equil:] and defl = defl[number_of_curves_before_equil:]
+        
+    override_involS (False, or float):
+        Whether or not to use a fixed optical sensitivity or to calculate the optical sensitivity from the constant
+        compliance region of each force curve. If False, the sensitivity is calculated from each force curve. If not False,
+        then the value of override_involS is used as the involS.
+    
+    override_spring_constant (False, or float):
+        Whether or not to override the spring constant in metadict. If False, does not override. If not False, the value of
+        override_spring_constant is used as the spring constant.
+
+    debug (bool):
+        *Not implimented* If True, will display additional output usefull for debugging.
+    
+    """
+    
+    # initialise variables
+    ExtendsXY = []
+    RetractsXY = []
+    ExtendsForce = []
+    RetractsForce = []
+    Esens = []
+    Rsens = []
+
+    discard_count = 0
+    
+    
+    # Determine global parameters
+    if override_involS:
+        invOLS = override_involS
+    else:
+        if metadict == None:
+            invOLS = 1
+        elif 'InvOLS' in metadict.keys():
+            invOLS = float(metadict['InvOLS'])
+        else:
+            invOLS = 1
+
+    if override_spring_constant:
+        spring_constant = override_spring_constant
+    else:
+        if metadict == None:
+            spring_constant = 1
+        elif 'SpringConstant' in metadict.keys():
+            spring_constant = float(metadict['SpringConstant'])
+        else:
+            spring_constant = 1
+            
+    print (f"InvOLS: {invOLS}, Spring constant: {spring_constant}")
+    
+
+    # trim data
+    if max_to_process == None:
+        max_to_process = len(zpos)
+    else:
+        max_to_process += number_of_curves_before_equil
+
+    zpos = zpos[number_of_curves_before_equil:max_to_process]
+    defl = defl[number_of_curves_before_equil:max_to_process]
+
+    
+    # loop through zpos and defl
+    for idx, [z, d] in enumerate(zip(zpos, defl)):
+        if not is_data_sanitary([z, d]):
+            print (f"entry {number_of_curves_before_equil + idx} dead on arrival")
+            discard_count += 1
+            continue
+    
+    
+        # Convert units
+        d = convert_defl_to_mV(d, defl_units, invOLS)
+        z = convert_zpos_to_nm(z, zpos_units, flip=zpos_negative)
+        XYdata = np.array([z,d])
+
+    
+        # Remove dwell drift
+        XYdata = remove_dwell_drift(XYdata)
+        if not is_data_sanitary(XYdata):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on dwell drift removal")
+            discard_count += 1
+            continue
+        
+
+        # Split data into approach and retract
+        ExtendXY, RetractXY = split_and_normalize(XYdata)
+        if not is_data_sanitary([ExtendXY, RetractXY]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on split and normalize")
+            discard_count += 1
+            continue
+
+
+        # Calculate sensitivity
+        Esen = calculateSensitivity(ExtendXY)
+        Rsen = calculateSensitivity(RetractXY)
+        if np.isnan(Esen) or np.isnan(Rsen):
+            print (f"entry {number_of_curves_before_equil + idx} Failed to find constant compliance sensitivity")
+            discard_count += 1
+            continue
+
+            
+        # Convert to force vs. separation
+        average_sens = (Esen + Rsen)/2
+        ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(metadict['SpringConstant']))
+        RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(metadict['SpringConstant']))
+        if not is_data_sanitary([ExtendForce, RetractForce]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
+            discard_count += 1
+            continue
+
+
+        # Correct remaining baseline curvature
+        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=1)
+        ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.05, bonus_ForceData=RetractForce)
+        if not is_data_sanitary([ExtendForce, RetractForce]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on baseline curvature correction")
+            discard_count += 1
+            continue
+
+
+        # Clean up data, one last time
+        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=0.02)
+        if not is_data_sanitary([ExtendForce, RetractForce]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on cleanup")
+            discard_count += 1
+            continue
+
+
+        # Append processed data to lists
+        ExtendsXY.append(ExtendXY)
+        RetractsXY.append(RetractXY)
+        ExtendsForce.append(ExtendForce)
+        RetractsForce.append(RetractForce)
+        Esens.append(Esen)
+        Rsens.append(Rsen)
+        
+        if debug:
+            userinput = input("Do you want to continue?")
+            if userinput.lower() != 'y':
+                break
+        
+    # Get rid of data that deviates from the mean sensitivity
+    AvExSens = np.mean(Esens)
+    StdExSens = np.std(Esens)
+    AvRetSens = np.mean(Rsens)
+    StdRetSens = np.std(Esens)
+
+    ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
+    RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
+    SensMask = np.logical_and(ExSensMask, RetSensMask)
+    
+    number_excluded_by_sens = np.sum(np.logical_not(SensMask))
+    if number_excluded_by_sens != 0:
+
+        print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
+
+        discard_count += number_excluded_by_sens
+
+        ExtendsForce  = list(compress(ExtendsForce, SensMask))
+        RetractsForce = list(compress(RetractsForce, SensMask))
+        ExtendsXY     = list(compress(ExtendsXY, SensMask))
+        RetractsXY    = list(compress(RetractsXY, SensMask))
+
+        # Recalculate the mean sensitivity
+        AvExSens = np.mean(np.array(Esens)[SensMask])
+        AvRetSens = np.mean(np.array(Rsens)[SensMask])
+
+
+    # Print stuff that you might want to know
+    print("Extend Sensitivity: " + str(AvExSens) + " nm/V")
+    print("Retract Sensitivity: " + str(AvRetSens) + " nm/V")
+    print (f'{discard_count}/{len(zpos)-1} discarded' )
+
+    return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
+
+    
+def convert_defl_to_mV(defl, defl_units, invOLS=None):
+    if defl_units == 'nm':
+        assert invOLS != None , "if defl_units is a length, involS must be supplied"
+        defl = defl/invOLS
+    elif defl_units == 'm':
+        assert invOLS != None , "if defl_units is a length, involS must be supplied"
+        defl = defl/invOLS
+    elif defl_units == 'mV':
+        defl = defl
+    elif defl_units == 'V':
+        defl = defl/1000
+    else:
+        raise Exception("defl_units not recognised")
+        
+    return defl
+
+
+def convert_zpos_to_nm(zpos, zpos_units, flip=True):
+    if flip:
+        mult = -1
+    else:
+        mult = 1
+
+    if zpos_units == 'nm':
+        zpos *= mult
+    elif zpos_units == 'um':
+        zpos *= mult*1e3 
+    elif zpos_units == 'mm':
+        zpos *= mult*1e6 
+    elif zpos_units == 'm':
+        zpos *= mult*1e9 
+    else:
+        raise Exception("zpos_units not recognised")
+        
+    return zpos
+
+
+def is_data_sanitary(data):
+    """
+    Takes Force vs Separation data and determines if theres anything seriously wrong with it.
+    """
+    
+    for datum in data:
+        if np.any(datum) == None:
+            return False
+        elif np.any(np.isnan(datum)):
+            return False
+        elif np.ndim(datum) == 1 and datum.shape[0] < 100:
+            return False
+        elif np.ndim(datum) == 2 and datum.shape[1] < 100:
+            return False
+
+    return True
+
+
+def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01):
+    mask = (np.abs(ApproachForceData[1])<0.15)
+    newApproachForceData = ApproachForceData.T[mask].T
+    newApproachForceData = zeroForceCurves(newApproachForceData)
+
+    mask = (np.abs(RetractForceData[1])<0.15)
+    newRetractForceData = RetractForceData.T[mask].T
+    newRetractForceData = zeroForceCurves(newRetractForceData)
+
+    mask = newApproachForceData[0] > 5
+    std_non_compliance = np.std(newApproachForceData[1][mask])
+    
+    if std_non_compliance > force_std_thresh: # large fluctuations in approach curves (which should not be there):
+        return None, None
+    else:
+        return newApproachForceData, newRetractForceData
+    
+
+
+def split_and_normalize(XYdata):
+    ExtendXY, RetractXY = splitExtendRetract(XYdata)
+    
+    if ExtendXY.shape[1] < 100 or RetractXY.shape[1] < 100:
+        return None, None
+    
+    ExtendXY  = RemoveBaseline_Linear(ExtendXY, approachFraction=0.3)
+    RetractXY = RemoveBaseline_Linear(RetractXY, approachFraction=0.3)
+
+    if ExtendXY is None or RetractXY is None:
+        return None, None
+
+    else:
+        try:
+            ExtendXY = np.flip(ExtendXY, axis=1)
+            RetractXY = np.flip(RetractXY, axis=1)
+
+            ExtendXY = ExtendXY[:,20:-20]
+            RetractXY = RetractXY[:,20:-20]
+            
+            # Have hard contact occur at 0 nm
+            threshold = 0.1
+            idx = np.where(ExtendXY[1]>threshold)[0][0]
+            ExtendXY[0]  -= ExtendXY[0][idx]
+
+            idx = np.where(RetractXY[1]>threshold)[0][0]
+            RetractXY[0]  -= RetractXY[0][idx]
+
+            return ExtendXY, RetractXY
+        except:
+            return None, None
+    
+
 
 def splitExtendRetract(ForceData):
     """
@@ -20,7 +353,8 @@ def splitExtendRetract(ForceData):
     return Extend, Retract
 
 
-def extractHardContactRegion(ForceData, SplitFirst=False):
+
+def extractHardContactRegion(ForceData, SplitFirst=False, quantile=0.90):
     """
     Extracts compliance regions from force data. If the data contains both extension and retraction,
     split first should be true. 
@@ -35,16 +369,47 @@ def extractHardContactRegion(ForceData, SplitFirst=False):
     
     if SplitFirst:
         Extend, Retract = splitExtendRetract(ForceData)
-        return extractCompli fanceRegion(Extend, False), extractComplianceRegion(Retract, False)
+        return extractHardContactRegion(Extend, False), extractHardContactRegion(Retract, False)
     
     else:
-        MaxIndex = np.argmax(ForceData[1][ForceData[1]>0])
-        MinIndex = np.argmin(ForceData[1][ForceData[1]>0])
+        q = np.nanquantile(ForceData[1], 0.9, axis=0)
+        if q < 0:
+            q=0
+
+        IndexAboveThreshold = np.argwhere(ForceData[1]>q)
+        FirstConsecutiveSet = consecutive(IndexAboveThreshold.flatten())[0]
+        MaxIndex = FirstConsecutiveSet[0]
+        MinIndex = FirstConsecutiveSet[-1]
         
         if MaxIndex > MinIndex: # This shouldn't be required if the sanitisation in splitExtendRetract works properly
             return ForceData[:,MinIndex:]
         else:
             return ForceData[:,:MinIndex]
+
+
+
+def remove_dwell_drift(XYdata):
+    """
+    Sometimes there will be a deflection drift without a change in raw Z position. This will confuse the code later on.
+    We remove it by assuming that the derivative of Z-sensor position in this area will be close to zero. 
+    
+    Split extend/retract speeds may cause problems, because the Z sensor velocity threshold is taken from the average
+    of the Z sensor velocity over the course of the experiment. As long as the retract is not 20 times slower than the
+    approach, this code should be fine.
+    """
+    raw = XYdata[0]
+    
+    window_length =  int(raw.shape[0]/100)
+    if window_length%2 == 0:
+        window_length += 1
+
+    newraw = savgol_filter(raw,window_length, 1) 
+    newrawgrad = np.gradient(newraw)
+
+    mask = np.abs(newrawgrad)>np.quantile(np.abs(newrawgrad), 0.5)/2
+    
+    return XYdata.T[mask].T
+
 
 
 def parseDirectory(Directory):
@@ -65,93 +430,118 @@ def parseDirectory(Directory):
     return zip(Xfilenames, Yfilenames)
 
 
-def RemoveBaseline(ForceData, approachFraction=0.5):
+
+def RemoveBaseline_Linear(ForceData, approachFraction=0.5):
+    if np.any(ForceData) == None:
+        return None
+
     X, Y = ForceData
     Xrange = np.max(X) - np.min(X)
     Partition_mask = X > np.min(X) + Xrange*approachFraction
     
+    window_length = int(len(Y)/50)
+    if window_length%2 == 0:
+        window_length += 1
 
-    smoothygrad = np.abs(savgol_filter(Y, int(len(Y)/50), 1, deriv=1))
+    smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
     gradient_cutoff = 0.25*np.average(smoothygrad)
     gradient_mask = smoothygrad < gradient_cutoff
     
     mask = np.logical_and(Partition_mask, gradient_mask)
         
-    m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
-    
-    baseline = X*m+c
-    OffsetY = Y - baseline
-    
-    if np.abs(m) > 100000:
-        warnings.warn("Baseline gradient exceeds 100000 - check approachFraction")
-        return None        
+    if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
+        m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
+
+        baseline = X*m+c
+        OffsetY = Y - baseline
+
+        if np.abs(m) > 100000:
+            warnings.warn("Baseline gradient exceeds 100000 - check approachFraction")
+            return None        
+        else:
+            return copy.deepcopy(np.array([X, OffsetY]))
     else:
-        return copy.deepcopy(np.array([X, OffsetY]))
+        return None
 
 
-def zeroForceCurves(ForceData, forceThreshold=3e-8):
+    
+def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None):
+    if np.any(ForceData) == None:
+        return None, None
+
+    X, Y = ForceData
+    Xrange = np.max(X) - np.min(X)
+    Partition_mask = X > np.min(X) + Xrange*approachFraction
+    
+    window_length = int(len(Y)/50)
+    if window_length%2 == 0:
+        window_length += 1
+
+    smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
+    gradient_cutoff = 0.5*np.median(smoothygrad[Partition_mask])
+    
+    gradient_mask = smoothygrad < gradient_cutoff
+    
+    mask = np.logical_and(Partition_mask, gradient_mask)
+    
+    if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
+        fit_params = polynomial.polyfit(X[mask],Y[mask], order)
+        # m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
+
+        baseline = polynomial.polyval(X, fit_params)
+        OffsetY = Y - baseline
+
+        if np.mean(OffsetY[:10]) < 0:
+            # If the start of the constant compliance region is less than zero, process has failed
+            return None, None
+        
+        if np.any(bonus_ForceData) == None:
+            return copy.deepcopy(np.array([X, OffsetY]))
+        else:
+            baseline = polynomial.polyval(bonus_ForceData[0], fit_params)
+            bonus_OffsetY = bonus_ForceData[1] - baseline
+            return copy.deepcopy(np.array([X, OffsetY])), copy.deepcopy(np.array([bonus_ForceData[0], bonus_OffsetY]))
+
+
+    else:
+        return None, None
+    
+
+
+def zeroForceCurves(ForceData):
     """
     Performs a zeroing on force vs. separation curves
     
     (NOT displacement / z-piezeo position curves - use "ConvertToForceVSep" to convert
     to force vs. separation first)
     """
+
     if ForceData.ndim == 3:
         for FD in ForceData:
-            mask = FD[1] > forceThreshold
-            FD[0] -= np.mean(FD[0][mask])
+            compliance = extractHardContactRegion(ForceData)
+            comp_len_cutoff = int(compliance.shape[1]/1.5)
+            FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
 
     else:
-        mask = ForceData[1] > forceThreshold
-        ForceData[0] -= np.mean(ForceData[0][mask])
+        compliance = extractHardContactRegion(ForceData)
+        comp_len_cutoff = int(compliance.shape[1]/1.5)
+        ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
 
     return ForceData
-    
-    
 
 
-def findComplianceEdge(compliance, threshold=3, complianceMinDeflV=0.4, returnVal=True):
-    """
-    Works backwards from maximum deflection to find the 'edge' of the compliance region, presumably this is the
-    Z position of the substrate (or close to it).
-    
-    Threshold: Number of standard deviations that the signal needs to deviate from the mean compliance region gradient 
-    to be considered outside of the compliance region.
-    
-    complianceMinDeflV: Deflection voltage above which we are assumed to be in the compliance region.
-    
-    returnVal: If True returns the z value where he compliance region starts. If false returns the index.
-    
-    """
-    x, y  = compliance
-    ydiff = savgol_filter(y,15,1, deriv=1)
-    compliance_gradient = np.mean(ydiff[y>complianceMinDeflV])
-    compliance_std = np.std(ydiff[y>complianceMinDeflV])
-    
-    complianceEdgeMask = ydiff[y<complianceMinDeflV]-compliance_gradient<-compliance_std*threshold
 
-    if np.any(complianceEdgeMask):
-        complianceEdgeIdx = np.argwhere(complianceEdgeMask)[-1]
-    else:
-        complianceEdgeIdx = np.array([0])
-
-    
-    if returnVal:
-        return compliance[:, complianceEdgeIdx]
-    else:
-        return complianceEdgeIdx[0]
-
-
-    
-def calculateSensitivity(ForceData, complianceMinDeflV=0.2):
+def calculateSensitivity(ForceData):
     compliance = extractHardContactRegion(ForceData)
 
-    mask = compliance[1]>complianceMinDeflV
-    ExtendSen = -1/stats.linregress(compliance[0, mask], compliance[1, mask]).slope
+    comp_len_cutoff = int(compliance.shape[1]/1.5)
+    Sen = -1/stats.linregress(compliance[0, :comp_len_cutoff], compliance[1, :comp_len_cutoff]).slope
 
-    return ExtendSen
+    return Sen
 
-def ConvertToForceVSep(ForceData, sensitivity=0, spring_constant=1):
+
+
+def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
     """
     Converts the data to separation (if spring constant != 1, also converts to force)
     """       
@@ -173,7 +563,7 @@ def ConvertToForceVSep(ForceData, sensitivity=0, spring_constant=1):
     return ForceData
   
     
-def find_SMpulloffs(ForceSepRetract, verbose=False):
+def find_SMpulloffs(ForceSepRetract, verbose=False, lowest_value=5):
     """
     Returns values in distance from susbtrate and adhesion force (nN) (as a positive quantity)
     
@@ -181,10 +571,20 @@ def find_SMpulloffs(ForceSepRetract, verbose=False):
     x, y = ForceSepRetract
     x = x[~np.isnan(y)]
     y = y[~np.isnan(y)]
+    
+    mask1 = x > lowest_value
+    x = x[mask1]
+    y = y[mask1]
 
+    
     # Smooth the y-signal to remove outliers when masking
-    newy = savgol_filter(y, int(len(x)/80), 1)
-    mask = np.logical_and(x>5, newy < -0.05)
+    window_length = int(len(x)/80)
+    if window_length%2 == 0:
+        window_length += 1
+        
+        
+    newy = savgol_filter(y, window_length, 1)
+    mask = newy < 0
 
     PO_x = x[mask]
     PO_y = y[mask]
@@ -192,23 +592,27 @@ def find_SMpulloffs(ForceSepRetract, verbose=False):
     
     xdiff = np.abs(np.diff(PO_x))
     ydiff = np.diff(PO_newy)
-    splits = np.argwhere(np.logical_or(xdiff>4, ydiff>0.001))[:,0]
-    splits = np.concatenate([np.array([0]), splits, np.array([len(xdiff)-10])])
+
+    splits = np.argwhere(np.logical_or(xdiff>2*np.quantile(xdiff, 0.95),
+                                   ydiff>2*np.quantile(ydiff, 0.95)))[:,0]
+    splits = np.concatenate([np.array([0]), splits, np.array([len(xdiff)-5])])
     
     split_SM_curves = []
     discarded_SM_curves = []
 
     for [sx1, sx2] in zip(splits[:-1], splits[1:]):
-        start_slice = sx1+1
+        start_slice = sx1-10
+        if start_slice < 0: # If start slice < 0 will stuff up indexing later
+            start_slice = 0
         
-        end_slice = sx2-1
+        end_slice = sx2-3
         if end_slice > len(PO_x):
             end_slice = len(PO_x)-1
     
         tempx = PO_x[start_slice:end_slice].copy()
         tempy = PO_y[start_slice:end_slice].copy()
         
-        if len(tempx) > 30: # If the array has less than 30 entries, then don't worry about it (keep in mind we're padding)
+        if len(tempx) > 50: # If the array has less than 30 entries, then don't worry about it (keep in mind we're padding)
             
             # We only take values with a negative slope (overall), because we just want the
             # pull-off events.
@@ -216,10 +620,14 @@ def find_SMpulloffs(ForceSepRetract, verbose=False):
             a, b = np.polyfit(tempx, tempy, 1)
             
             run = tempx[-1] - tempx[0]
-            if a*run < -0.015:
-                split_SM_curves.append([abs(tempx), abs(tempy)])
+            
+            split_mask = np.logical_and(x>tempx[0], x<tempx[-1])
+            if a*run > -0.01:
+                discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+            elif PO_x[end_slice] + 10 > x[-1]:
+                discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
             else:
-                discarded_SM_curves.append([abs(tempx), abs(tempy)])
+                split_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
 
                 
     if verbose:
@@ -231,13 +639,14 @@ def find_SMpulloffs(ForceSepRetract, verbose=False):
     
 def make_QC_video(FCD, subdf, max_pulloffs_plotted=7, upto=None, save_name='Untitled.mkv', save_path='./'):
     """
+    Creates a animation showing each forcecurve (extend and retract) with single-molecule fits overlaid.
     FCD   : the force curve dataset, where index 2 is force vs. sep extends and index 3 is force vs. sep retracts
 
     subdf : the dataframe containing all the pull off events associated with FCD
     
     """
-    ForceSepExtends = FCD[2]
-    ForceSepRetracts = FCD[3]
+    ForceSepExtends = resampleForceDataArray(FCD[2])
+    ForceSepRetracts = resampleForceDataArray(FCD[3])
     
 
     def init():
@@ -334,3 +743,33 @@ def plot_all_forcecurves(FCD, name='Untitled', save_path='./', alp=0.05):
     
     
     return fig, [[ax1, ax3], [ax2, ax4]]
+
+
+
+def resampleForceDataArray(ForceData):  
+    maxZval = 0
+    minZval = 0
+    maxLen = 0
+
+    for data in ForceData:
+        z = data[0]
+        localMin = min(z)
+        localMax = max(z)
+
+        if minZval > localMin:
+            minZval = localMin
+
+        if maxZval < localMax:
+            maxZval = localMax
+
+        if maxLen < len(z):
+            maxLen = len(z)
+            
+    newZ = np.linspace(minZval, maxZval, num=maxLen)
+
+    newForceData = []
+
+    for data in ForceData:
+        newForceData.append([newZ, np.interp(newZ, data[0], data[1], right=np.nan)])
+
+    return np.array(newForceData)
