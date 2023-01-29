@@ -353,23 +353,6 @@ def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, 
 
 
 
-# def coarseNormalize(ForceData):
-#     try:
-#         # Have hard contact occur at 0 nm
-#         start_point = np.mean(ForceData[1][0:50])
-#         threshold = 0.1
-#
-#         idx = np.where(ForceData[1]>threshold+start_point)[0][0]
-#         ForceData[0]  -= ForceData[0][idx]
-#
-#         return ForceData
-#     except:
-#         print (f'Error occured in zeroing raw data, start point: {start_point},\
-#         length force: {len(ForceData[0])}')
-#         return None, None
-
-
-
 def splitExtendRetract(ForceData):
     """
     ForceData : a 2xN array, where the [0] is the Z-piezo position and [1] is the deflection voltage
@@ -438,41 +421,6 @@ def remove_dwell_drift(XYdata):
     mask = np.abs(newrawgrad)>np.quantile(np.abs(newrawgrad), 0.5)/2
 
     return XYdata.T[mask].T
-
-
-#
-# def RemoveBaseline_Linear(ForceData, approachFraction=0.5):
-#     # TODO: Replace with RemoveBaseline_nOrder
-#     if np.any(ForceData) == None:
-#         return None
-#
-#     X, Y = ForceData
-#     Xrange = np.max(X) - np.min(X)
-#     Partition_mask = X > np.min(X) + Xrange*approachFraction
-#
-#     window_length = int(len(Y)/50)
-#     if window_length%2 == 0:
-#         window_length += 1
-#
-#     smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
-#     gradient_cutoff = 0.25*np.average(smoothygrad)
-#     gradient_mask = smoothygrad < gradient_cutoff
-#
-#     mask = np.logical_and(Partition_mask, gradient_mask)
-#
-#     if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
-#         m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
-#
-#         baseline = X*m+c
-#         OffsetY = Y - baseline
-#
-#         if np.abs(m) > 100000:
-#             warnings.warn("Baseline gradient exceeds 100000 - check approachFraction")
-#             return None
-#         else:
-#             return copy.deepcopy(np.array([X, OffsetY]))
-#     else:
-#         return None
 
 
 
