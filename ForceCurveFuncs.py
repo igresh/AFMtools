@@ -6,10 +6,11 @@ import warnings
 from itertools import compress
 from numpy.polynomial import polynomial
 from Utility import consecutive
+import matplotlib.pyplot as plt
 
 
 def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units='nm', zpos_negative=True, max_to_process=None,
-                         number_of_curves_before_equil=1, override_involS=False, override_spring_constant=False, debug=False):
+                         number_of_curves_before_equil=1, override_involS=False, override_spring_constant=False, debug=False, abs_forcecrop=0.4):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
     tip-separation and force curves.
@@ -71,8 +72,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
     Esens = []
     Rsens = []
 
-    discard_count = 0
+    discard_count = len(zpos)
 
+    if debug:
+        fig, ax = plt.subplots()
 
     # Determine global parameters
     if override_involS:
@@ -87,6 +90,14 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
 
     if override_spring_constant:
         spring_constant = override_spring_constant
+
+        if metadict == None:
+            original_spring_constant = 1
+        elif 'SpringConstant' in metadict.keys():
+            original_spring_constant = metadict['SpringConstant']
+        else:
+            original_spring_constant = 1
+
     else:
         if metadict == None:
             spring_constant = 1
@@ -94,6 +105,8 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
             spring_constant = float(metadict['SpringConstant'])
         else:
             spring_constant = 1
+
+        original_spring_constant = spring_constant
 
     print (f"InvOLS: {invOLS}, Spring constant: {spring_constant}")
 
@@ -110,9 +123,18 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
 
     # loop through zpos and defl
     for idx, [z, d] in enumerate(zip(zpos, defl)):
+        if debug:
+            ax.legend()
+            fig.show()
+
+            userinput = input("Do you want to continue?")
+            if userinput.lower() != 'y':
+                break
+            ax.cla()
+
+
         if not is_data_sanitary([z, d]):
             print (f"entry {number_of_curves_before_equil + idx} dead on arrival")
-            discard_count += 1
             continue
 
 
@@ -126,15 +148,41 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
         XYdata = remove_dwell_drift(XYdata)
         if not is_data_sanitary(XYdata):
             print (f"entry {number_of_curves_before_equil + idx} Failed on dwell drift removal")
-            discard_count += 1
             continue
 
 
         # Split data into approach and retract
-        ExtendXY, RetractXY = split_and_normalize(XYdata)
+        ExtendXY, RetractXY = splitExtendRetract(XYdata)
+        ExtendXY = np.flip(ExtendXY, axis=1)
+        RetractXY = np.flip(RetractXY, axis=1)
+        # ExtendXY = ExtendXY[:,20:-20]
+        # RetractXY = RetractXY[:,20:-20]
+
+        if not is_data_sanitary([ExtendXY, RetractXY]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on splitExtendRetract")
+            if debug:
+                ax.plot(*ExtendXY, label='ExtendXY')
+                ax.plot(*RetractXY, label='RetractXY')
+            continue
+
+        if debug:
+                ax.plot(*ExtendXY, label='ExtendXY')
+                ax.plot(*RetractXY, label='RetractXY')
+
+        # Remove baseline  (change to norder=1 in the future)
+        ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4)
+        RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4)
+        if not is_data_sanitary([ExtendXY, RetractXY]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on first baseline correction")
+            continue
+
+        if debug:
+                ax.plot(*ExtendXY, label='ExtendXY')
+                ax.plot(*RetractXY, label='RetractXY')
+
+        ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
         if not is_data_sanitary([ExtendXY, RetractXY]):
             print (f"entry {number_of_curves_before_equil + idx} Failed on split and normalize")
-            discard_count += 1
             continue
 
 
@@ -143,34 +191,46 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
         Rsen = calculateSensitivity(RetractXY)
         if np.isnan(Esen) or np.isnan(Rsen):
             print (f"entry {number_of_curves_before_equil + idx} Failed to find constant compliance sensitivity")
-            discard_count += 1
             continue
 
+        if debug:
+            ax.cla()
+            ax.plot(*ExtendXY, label='Extend')
+            ax.plot(*RetractXY, label='Retract')
 
         # Convert to force vs. separation
         average_sens = (Esen + Rsen)/2
-        ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(metadict['SpringConstant']))
-        RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(metadict['SpringConstant']))
+        # old_EF, old_RF = ExtendForce, RetractForce
+        ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
+        RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
         if not is_data_sanitary([ExtendForce, RetractForce]):
             print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
-            discard_count += 1
-            continue
+
+        if debug:
+            ax.plot(*ExtendForce, label='Extend force')
+            ax.plot(*RetractForce, label='Retract force')
 
 
         # Correct remaining baseline curvature
-        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=1)
-        ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.05, bonus_ForceData=RetractForce)
+        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=1, forcecrop=100)
+        if not is_data_sanitary([ExtendForce, RetractForce]):
+            print (f"entry {number_of_curves_before_equil + idx} Failed on first cleanup")
+            continue
+
+        if debug:
+            ax.plot(*ExtendForce, label='Extend force, corrected')
+            ax.plot(*RetractForce, label='Retract force, corrected')
+
+        ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
         if not is_data_sanitary([ExtendForce, RetractForce]):
             print (f"entry {number_of_curves_before_equil + idx} Failed on baseline curvature correction")
-            discard_count += 1
             continue
 
 
         # Clean up data, one last time
-        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=0.02)
+        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=0.02, forcecrop=abs_forcecrop)
         if not is_data_sanitary([ExtendForce, RetractForce]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on cleanup")
-            discard_count += 1
+            print (f"entry {number_of_curves_before_equil + idx} Failed on second cleanup")
             continue
 
 
@@ -182,20 +242,17 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
         Esens.append(Esen)
         Rsens.append(Rsen)
 
-        if debug:
-            userinput = input("Do you want to continue?")
-            if userinput.lower() != 'y':
-                break
+        discard_count -= 1 # One more force curve that wasn't discarded
 
     # Get rid of data that deviates from the mean sensitivity
     AvExSens = np.mean(Esens)
     StdExSens = np.std(Esens)
     AvRetSens = np.mean(Rsens)
     StdRetSens = np.std(Esens)
-
     ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
     RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
     SensMask = np.logical_and(ExSensMask, RetSensMask)
+
 
     number_excluded_by_sens = np.sum(np.logical_not(SensMask))
     if number_excluded_by_sens != 0:
@@ -277,12 +334,12 @@ def is_data_sanitary(data):
     return True
 
 
-def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01):
-    mask = (np.abs(ApproachForceData[1])<0.15)
+def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, forcecrop=0.15):
+    mask = (np.abs(ApproachForceData[1])<forcecrop)
     newApproachForceData = ApproachForceData.T[mask].T
     newApproachForceData = zeroForceCurves(newApproachForceData)
 
-    mask = (np.abs(RetractForceData[1])<0.15)
+    mask = (np.abs(RetractForceData[1])<forcecrop)
     newRetractForceData = RetractForceData.T[mask].T
     newRetractForceData = zeroForceCurves(newRetractForceData)
 
@@ -296,37 +353,20 @@ def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01):
 
 
 
-def split_and_normalize(XYdata):
-    ExtendXY, RetractXY = splitExtendRetract(XYdata)
-
-    if ExtendXY.shape[1] < 100 or RetractXY.shape[1] < 100:
-        return None, None
-
-    ExtendXY  = RemoveBaseline_Linear(ExtendXY, approachFraction=0.3)
-    RetractXY = RemoveBaseline_Linear(RetractXY, approachFraction=0.3)
-
-    if ExtendXY is None or RetractXY is None:
-        return None, None
-
-    else:
-        try:
-            ExtendXY = np.flip(ExtendXY, axis=1)
-            RetractXY = np.flip(RetractXY, axis=1)
-
-            ExtendXY = ExtendXY[:,20:-20]
-            RetractXY = RetractXY[:,20:-20]
-
-            # Have hard contact occur at 0 nm
-            threshold = 0.1
-            idx = np.where(ExtendXY[1]>threshold)[0][0]
-            ExtendXY[0]  -= ExtendXY[0][idx]
-
-            idx = np.where(RetractXY[1]>threshold)[0][0]
-            RetractXY[0]  -= RetractXY[0][idx]
-
-            return ExtendXY, RetractXY
-        except:
-            return None, None
+# def coarseNormalize(ForceData):
+#     try:
+#         # Have hard contact occur at 0 nm
+#         start_point = np.mean(ForceData[1][0:50])
+#         threshold = 0.1
+#
+#         idx = np.where(ForceData[1]>threshold+start_point)[0][0]
+#         ForceData[0]  -= ForceData[0][idx]
+#
+#         return ForceData
+#     except:
+#         print (f'Error occured in zeroing raw data, start point: {start_point},\
+#         length force: {len(ForceData[0])}')
+#         return None, None
 
 
 
@@ -400,46 +440,43 @@ def remove_dwell_drift(XYdata):
     return XYdata.T[mask].T
 
 
-
-def RemoveBaseline_Linear(ForceData, approachFraction=0.5):
-    # TODO: Replace with RemoveBaseline_nOrder
-    if np.any(ForceData) == None:
-        return None
-
-    X, Y = ForceData
-    Xrange = np.max(X) - np.min(X)
-    Partition_mask = X > np.min(X) + Xrange*approachFraction
-
-    window_length = int(len(Y)/50)
-    if window_length%2 == 0:
-        window_length += 1
-
-    smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
-    gradient_cutoff = 0.25*np.average(smoothygrad)
-    gradient_mask = smoothygrad < gradient_cutoff
-
-    mask = np.logical_and(Partition_mask, gradient_mask)
-
-    if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
-        m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
-
-        baseline = X*m+c
-        OffsetY = Y - baseline
-
-        if np.abs(m) > 100000:
-            warnings.warn("Baseline gradient exceeds 100000 - check approachFraction")
-            return None
-        else:
-            return copy.deepcopy(np.array([X, OffsetY]))
-    else:
-        return None
+#
+# def RemoveBaseline_Linear(ForceData, approachFraction=0.5):
+#     # TODO: Replace with RemoveBaseline_nOrder
+#     if np.any(ForceData) == None:
+#         return None
+#
+#     X, Y = ForceData
+#     Xrange = np.max(X) - np.min(X)
+#     Partition_mask = X > np.min(X) + Xrange*approachFraction
+#
+#     window_length = int(len(Y)/50)
+#     if window_length%2 == 0:
+#         window_length += 1
+#
+#     smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
+#     gradient_cutoff = 0.25*np.average(smoothygrad)
+#     gradient_mask = smoothygrad < gradient_cutoff
+#
+#     mask = np.logical_and(Partition_mask, gradient_mask)
+#
+#     if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
+#         m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
+#
+#         baseline = X*m+c
+#         OffsetY = Y - baseline
+#
+#         if np.abs(m) > 100000:
+#             warnings.warn("Baseline gradient exceeds 100000 - check approachFraction")
+#             return None
+#         else:
+#             return copy.deepcopy(np.array([X, OffsetY]))
+#     else:
+#         return None
 
 
 
 def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None):
-    if np.any(ForceData) == None:
-        return None, None
-
     X, Y = ForceData
     Xrange = np.max(X) - np.min(X)
     Partition_mask = X > np.min(X) + Xrange*approachFraction
@@ -449,11 +486,14 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
         window_length += 1
 
     smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
-    gradient_cutoff = 0.5*np.median(smoothygrad[Partition_mask])
 
-    gradient_mask = smoothygrad < gradient_cutoff
+    if np.any(bonus_ForceData) == None:
+        gradient_cutoff = np.median(smoothygrad[Partition_mask])
+        gradient_mask = smoothygrad < gradient_cutoff
+        mask = np.logical_and(Partition_mask, gradient_mask)
 
-    mask = np.logical_and(Partition_mask, gradient_mask)
+    else:
+        mask = Partition_mask
 
     if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
         fit_params = polynomial.polyfit(X[mask],Y[mask], order)
@@ -475,6 +515,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
 
 
     else:
+        print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}')
         return None, None
 
 
@@ -489,14 +530,20 @@ def zeroForceCurves(ForceData):
 
     if ForceData.ndim == 3:
         for FD in ForceData:
-            compliance = extractHardContactRegion(ForceData)
-            comp_len_cutoff = int(compliance.shape[1]/1.5)
-            FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
+            try:
+                compliance = extractHardContactRegion(ForceData)
+                comp_len_cutoff = int(compliance.shape[1]/1.5)
+                FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
+            except IndexError:
+                return None
 
     else:
-        compliance = extractHardContactRegion(ForceData)
-        comp_len_cutoff = int(compliance.shape[1]/1.5)
-        ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
+        try:
+            compliance = extractHardContactRegion(ForceData)
+            comp_len_cutoff = int(compliance.shape[1]/1.5)
+            ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
+        except IndexError:
+            return None
 
     return ForceData
 
