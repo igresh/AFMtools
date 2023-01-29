@@ -343,8 +343,8 @@ def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, 
     newRetractForceData = RetractForceData.T[mask].T
     newRetractForceData = zeroForceCurves(newRetractForceData)
 
-    mask = newApproachForceData[0] > 5
-    std_non_compliance = np.std(newApproachForceData[1][mask])
+    mask = newApproachForceData[0] > 50
+    std_non_compliance = 0.5*np.std(newApproachForceData[1][mask])
 
     if std_non_compliance > force_std_thresh: # large fluctuations in approach curves (which should not be there):
         return None, None
