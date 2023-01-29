@@ -428,7 +428,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
     X, Y = ForceData
     Xrange = np.max(X) - np.min(X)
     Partition_mask = X > np.min(X) + Xrange*approachFraction
-
+    gradient_mask = None
     window_length = int(len(Y)/50)
     if window_length%2 == 0:
         window_length += 1
