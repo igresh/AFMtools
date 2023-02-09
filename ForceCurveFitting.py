@@ -51,6 +51,7 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False, lowest_value=5)
 
     newy = savgol_filter(y, window_length, 2)
     xhalf = np.max(x)/2
+    ythreshold = 2*np.quantile(np.abs(newy[x>xhalf]), 0.95)
     ydffthreshold =  2*np.quantile(np.abs(np.diff(newy[x>xhalf])), 0.95)
     xdffthreshold =  2*np.quantile(np.abs(np.diff(x[x>xhalf])), 0.95)
     mask = newy < 0.02
@@ -112,7 +113,7 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False, lowest_value=5)
             if a > 0:
                 discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
                 too_positive += 1
-            elif rise > -0.02:
+            elif rise > -0.005 - ythreshold:
                 discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
                 too_small_delta += 1
             elif PO_x[end_slice] + 10 > x[-1]:

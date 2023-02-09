@@ -36,7 +36,7 @@ def plot_all_forcecurves(FCD, name='Untitled', save_path='./', alp=0.05):
     return fig, [[ax1, ax3], [ax2, ax4]]
 
 
-def make_QC_video(FCD, subdf, max_pulloffs_plotted=7, upto=None, save_name='Untitled.mkv', save_path='./'):
+def make_QC_video(FCD, subdf, max_pulloffs_plotted=7, upto=None, save_name='Untitled.mkv', save_path='./', bounds=[0,200,-0.4,0.1]):
     """
     Creates a animation showing each forcecurve (extend and retract) with single-molecule fits overlaid.
     FCD   : the force curve dataset, where index 2 is force vs. sep extends and index 3 is force vs. sep retracts
@@ -49,10 +49,10 @@ def make_QC_video(FCD, subdf, max_pulloffs_plotted=7, upto=None, save_name='Unti
 
 
     def init():
-        xmax = np.nanmax(ForceSepExtends[:,0])
-        xmin = np.nanmin(ForceSepExtends[:,0])
-        ymax = np.nanmax(ForceSepRetracts[:,1])
-        ymin = np.nanmin(ForceSepRetracts[:,1])
+        xmax = bounds[1]
+        xmin = bounds[0]
+        ymax = bounds[3]
+        ymin = bounds[2]
         ax1.set_xlim(xmin, xmax)
         ax1.set_ylim(ymin, 0.1)
 
@@ -79,8 +79,11 @@ def make_QC_video(FCD, subdf, max_pulloffs_plotted=7, upto=None, save_name='Unti
                 mod_artist.set_data(df_row['pull-off model'][0], -df_row['pull-off model'][1])
                 data_artist.set_data(df_row['pull-off data'][0], -df_row['pull-off data'][1])
 
-                text_artist.set_x(df_row['pull-off data'][0][-1])
-                text_artist.set_y(np.min(-df_row['pull-off data'][1])-0.2)
+
+                textx = np.min([df_row['pull-off data'][0][-1], bounds[1]*0.9])
+                texty = np.max([np.min(-df_row['pull-off data'][1])-0.2, bounds[2]*0.9])
+                text_artist.set_x(textx)
+                text_artist.set_y(texty)
                 text_artist.set_text(np.round(df_row['Contour Length'], 1))
 
 
