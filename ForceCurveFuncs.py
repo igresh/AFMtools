@@ -8,9 +8,23 @@ from numpy.polynomial import polynomial
 from Utility import consecutive
 import matplotlib.pyplot as plt
 
+"""
+Note - will have to change Isaacs script to set:
+    
+number_of_curves_before_equil = 1
+flatten_baseline = True
+drop_deviant_compReg = True
 
-def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units='nm', zpos_negative=True, max_to_process=None,
-                         number_of_curves_before_equil=1, override_involS=False, override_spring_constant=False, debug=False, abs_forcecrop=0.4):
+"""
+
+
+def process_zpos_vs_defl(zpos, defl, metadict=None,
+                         defl_units='nm', zpos_units='nm',
+                         zpos_negative=True, max_to_process=None,
+                         number_of_curves_before_equil=0, 
+                         override_involS=False, override_spring_constant=False,
+                         flatten_baseline=False, drop_deviant_compReg=False,
+                         debug=False, abs_forcecrop=0.4):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
     tip-separation and force curves.
@@ -155,8 +169,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
         ExtendXY, RetractXY = splitExtendRetract(XYdata)
         ExtendXY = np.flip(ExtendXY, axis=1)
         RetractXY = np.flip(RetractXY, axis=1)
-        # ExtendXY = ExtendXY[:,20:-20]
-        # RetractXY = RetractXY[:,20:-20]
 
         if not is_data_sanitary([ExtendXY, RetractXY]):
             print (f"entry {number_of_curves_before_equil + idx} Failed on splitExtendRetract")
@@ -221,10 +233,11 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
             ax.plot(*ExtendForce, label='Extend force, corrected')
             ax.plot(*RetractForce, label='Retract force, corrected')
 
-        ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
-        if not is_data_sanitary([ExtendForce, RetractForce]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on baseline curvature correction")
-            continue
+        if flatten_baseline:
+            ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
+            if not is_data_sanitary([ExtendForce, RetractForce]):
+                print (f"entry {number_of_curves_before_equil + idx} Failed on baseline curvature correction")
+                continue
 
 
         # Clean up data, one last time
@@ -244,31 +257,33 @@ def process_zpos_vs_defl(zpos, defl, metadict=None, defl_units='nm', zpos_units=
 
         discard_count -= 1 # One more force curve that wasn't discarded
 
-    # Get rid of data that deviates from the mean sensitivity
     AvExSens = np.mean(Esens)
     StdExSens = np.std(Esens)
     AvRetSens = np.mean(Rsens)
     StdRetSens = np.std(Esens)
-    ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
-    RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
-    SensMask = np.logical_and(ExSensMask, RetSensMask)
+    
+    if drop_deviant_compReg:
+    # Get rid of data that deviates from the mean sensitivity
+        ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
+        RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
+        SensMask = np.logical_and(ExSensMask, RetSensMask)
 
 
-    number_excluded_by_sens = np.sum(np.logical_not(SensMask))
-    if number_excluded_by_sens != 0:
+        number_excluded_by_sens = np.sum(np.logical_not(SensMask))
+        if number_excluded_by_sens != 0:
+    
+            print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
+    
+            discard_count += number_excluded_by_sens
+    
+            ExtendsForce  = list(compress(ExtendsForce, SensMask))
+            RetractsForce = list(compress(RetractsForce, SensMask))
+            ExtendsXY     = list(compress(ExtendsXY, SensMask))
+            RetractsXY    = list(compress(RetractsXY, SensMask))
 
-        print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
-
-        discard_count += number_excluded_by_sens
-
-        ExtendsForce  = list(compress(ExtendsForce, SensMask))
-        RetractsForce = list(compress(RetractsForce, SensMask))
-        ExtendsXY     = list(compress(ExtendsXY, SensMask))
-        RetractsXY    = list(compress(RetractsXY, SensMask))
-
-        # Recalculate the mean sensitivity
-        AvExSens = np.mean(np.array(Esens)[SensMask])
-        AvRetSens = np.mean(np.array(Rsens)[SensMask])
+            # Recalculate the mean sensitivity
+            AvExSens = np.mean(np.array(Esens)[SensMask])
+            AvRetSens = np.mean(np.array(Rsens)[SensMask])
 
 
     # Print stuff that you might want to know
