@@ -76,7 +76,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
     flatten_retract_with_approach (bool):
         Whether or not to subtract the approach curve from the retract curve to flatten it. Useful for single-molecule
-        force spectroscopy
+        force spectroscopy (note: this isn't how this works at the moment)
 
     drop_deviant_compReg (bool):
         Whether or not to drop curves with a constant compliance region more than 2 std away from the mean. Useful for 
