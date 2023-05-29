@@ -12,8 +12,9 @@ import matplotlib.pyplot as plt
 Note - will have to change Isaacs script to set:
     
 number_of_curves_before_equil = 1
-flatten_baseline = True
+flatten_retract_with_approach = True
 drop_deviant_compReg = True
+abs_forcecrop = 0.4
 
 """
 
@@ -23,7 +24,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          zpos_negative=True, max_to_process=None,
                          number_of_curves_before_equil=0, 
                          override_involS=False, override_spring_constant=False,
-                         flatten_baseline=False, drop_deviant_compReg=False,
+                         flatten_retract_with_approach=False, drop_deviant_compReg=False,
                          debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
@@ -72,6 +73,14 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     override_spring_constant (False, or float):
         Whether or not to override the spring constant in metadict. If False, does not override. If not False, the value of
         override_spring_constant is used as the spring constant.
+
+    flatten_retract_with_approach (bool):
+        Whether or not to subtract the approach curve from the retract curve to flatten it. Useful for single-molecule
+        force spectroscopy
+
+    drop_deviant_compReg (bool):
+        Whether or not to drop curves with a constant compliance region more than 2 std away from the mean. Useful for 
+        ensuring you only have high quality data.
 
     debug (bool):
         If True, will display additional output usefull for debugging.
@@ -247,7 +256,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Correct remaining baseline curvature   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            if flatten_baseline is True:
+            if flatten_retract_with_approach is True:
                 ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
         elif data_sanitary is False:
             print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
