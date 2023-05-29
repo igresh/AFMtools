@@ -24,7 +24,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          number_of_curves_before_equil=0, 
                          override_involS=False, override_spring_constant=False,
                          flatten_baseline=False, drop_deviant_compReg=False,
-                         debug=False, abs_forcecrop=0.4):
+                         debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
     tip-separation and force curves.
@@ -74,7 +74,18 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         override_spring_constant is used as the spring constant.
 
     debug (bool):
-        *Not implimented* If True, will display additional output usefull for debugging.
+        If True, will display additional output usefull for debugging.
+
+    abs_forcecrop (float):
+        Whether to crop out forces above or below a certain threshold. Useful because for large forces you might exceed the
+        constant compliance threshold of the cantilever.
+
+    failed_curve_handling (string):
+        How to handle curves that don't meet the 'is_data_sanitary' test. 
+        - if 'remove' then failed curves are not processed
+        - if 'replace_nan' then failed curves are replaced with an array of nans of the same length as the original
+          force curve
+        - if 'retain' then failed curves are appended to the array in whatever state they were when they failed
 
     """
 
@@ -86,7 +97,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     Esens = []
     Rsens = []
 
-    discard_count = len(zpos)
+    discard_count = len(zpos)-1
+
+    if drop_deviant_compReg:
+        assert failed_curve_handling == 'remove', 'If drop_deviant_compReg is True, failed_curve_handling must be "remove"'
 
     if debug:
         fig, ax = plt.subplots()
@@ -137,6 +151,16 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
     # loop through zpos and defl
     for idx, [z, d] in enumerate(zip(zpos, defl)):
+        # Set up parameters
+        data_sanitary = True # flag that will be used to determine if data is problematic
+        XYdata = np.array([np.nan])
+        ExtendXY = np.array([np.nan])
+        RetractXY = np.array([np.nan])
+        ExtendForce = np.array([np.nan])
+        RetractForce = np.array([np.nan])
+        Esen = np.nan
+        Rsen = np.nan
+
         if debug:
             ax.legend()
             fig.show()
@@ -147,143 +171,174 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             ax.cla()
 
 
-        if not is_data_sanitary([z, d]):
-            print (f"entry {number_of_curves_before_equil + idx} dead on arrival")
-            continue
 
-
-        # Convert units
-        d = convert_defl_to_mV(d, defl_units, invOLS)
-        z = convert_zpos_to_nm(z, zpos_units, flip=zpos_negative)
-        XYdata = np.array([z,d])
+        data_sanitary = is_data_sanitary([z, d], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            d = convert_defl_to_mV(d, defl_units, invOLS)
+            z = convert_zpos_to_nm(z, zpos_units, flip=zpos_negative)
+            XYdata = np.array([z,d])
+        elif data_sanitary is False:
+            data_sanitary = 'Dead on arrival'
 
 
         # Remove dwell drift
-        XYdata = remove_dwell_drift(XYdata)
-        if not is_data_sanitary(XYdata):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on dwell drift removal")
-            continue
+        data_sanitary = is_data_sanitary([z, d], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            XYdata = remove_dwell_drift(XYdata)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on unit conversion'
 
 
-        # Split data into approach and retract
-        ExtendXY, RetractXY = splitExtendRetract(XYdata)
-        ExtendXY = np.flip(ExtendXY, axis=1)
-        RetractXY = np.flip(RetractXY, axis=1)
 
-        if not is_data_sanitary([ExtendXY, RetractXY]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on splitExtendRetract")
-            if debug:
-                ax.plot(*ExtendXY, label='ExtendXY')
-                ax.plot(*RetractXY, label='RetractXY')
-            continue
-
-        if debug:
-                ax.plot(*ExtendXY, label='ExtendXY')
-                ax.plot(*RetractXY, label='RetractXY')
-
-        # Remove baseline  (change to norder=1 in the future)
-        ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4)
-        RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4)
-        if not is_data_sanitary([ExtendXY, RetractXY]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on first baseline correction")
-            continue
-
-        if debug:
-                ax.plot(*ExtendXY, label='ExtendXY')
-                ax.plot(*RetractXY, label='RetractXY')
-
-        ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
-        if not is_data_sanitary([ExtendXY, RetractXY]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on split and normalize")
-            continue
+        # Split data into approach and retract - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        data_sanitary = is_data_sanitary(XYdata, data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            ExtendXY, RetractXY = splitExtendRetract(XYdata, flip=True)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on dwell drift removal'
 
 
-        # Calculate sensitivity
-        Esen = calculateSensitivity(ExtendXY)
-        Rsen = calculateSensitivity(RetractXY)
+
+        # Remove baseline  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            ExtendXY, RetractXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4), RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on splitExtendRetract'
+
+
+
+        # Zero force curves - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=True)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on first baseline correction'
+
+
+
+        # Calculate sensitivity - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+        data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on split and normalize'
+
+
         if np.isnan(Esen) or np.isnan(Rsen):
-            print (f"entry {number_of_curves_before_equil + idx} Failed to find constant compliance sensitivity")
-            continue
+            data_sanitary = False
 
-        if debug:
-            ax.cla()
-            ax.plot(*ExtendXY, label='Extend')
-            ax.plot(*RetractXY, label='Retract')
 
-        # Convert to force vs. separation
-        average_sens = (Esen + Rsen)/2
-        # old_EF, old_RF = ExtendForce, RetractForce
-        ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
-        RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
-        if not is_data_sanitary([ExtendForce, RetractForce]):
+
+        # Convert to force vs. separation  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+        if data_sanitary is True:
+            average_sens = (Esen + Rsen)/2
+            ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
+            RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
+            plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed to find constant compliance sensitivity'
+
+
+
+        # Correct remaining baseline curvature   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+        data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            if flatten_baseline is True:
+                ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
+        elif data_sanitary is False:
             print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
 
-        if debug:
-            ax.plot(*ExtendForce, label='Extend force')
-            ax.plot(*RetractForce, label='Retract force')
 
 
-        # Correct remaining baseline curvature
-        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=1, forcecrop=100)
-        if not is_data_sanitary([ExtendForce, RetractForce]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on first cleanup")
-            continue
-
-        if debug:
-            ax.plot(*ExtendForce, label='Extend force, corrected')
-            ax.plot(*RetractForce, label='Retract force, corrected')
-
-        if flatten_baseline:
-            ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
-            if not is_data_sanitary([ExtendForce, RetractForce]):
-                print (f"entry {number_of_curves_before_equil + idx} Failed on baseline curvature correction")
-                continue
+        #Clean up data, one last time
+        data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            if abs_forcecrop:
+                ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop)
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on final baseline curvature correction'
 
 
-        # Clean up data, one last time
-        ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, force_std_thresh=0.02, forcecrop=abs_forcecrop)
-        if not is_data_sanitary([ExtendForce, RetractForce]):
-            print (f"entry {number_of_curves_before_equil + idx} Failed on second cleanup")
-            continue
+        # HERE WE NEED TO IMPLIMENT failed_curve_handling FLAG
+
+        data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
+        if data_sanitary is True:
+            pass
+        elif data_sanitary is False:
+            data_sanitary = 'Failed on final cleanup'
+        else:
+            print(f"entry {number_of_curves_before_equil + idx}: {data_sanitary}")
 
 
-        # Append processed data to lists
-        ExtendsXY.append(ExtendXY)
-        RetractsXY.append(RetractXY)
-        ExtendsForce.append(ExtendForce)
-        RetractsForce.append(RetractForce)
-        Esens.append(Esen)
-        Rsens.append(Rsen)
+        if data_sanitary is True:
+            # Append processed data to lists
+            ExtendsXY.append(ExtendXY)
+            RetractsXY.append(RetractXY)
+            ExtendsForce.append(ExtendForce)
+            RetractsForce.append(RetractForce)
+            Esens.append(Esen)
+            Rsens.append(Rsen)
 
-        discard_count -= 1 # One more force curve that wasn't discarded
+            discard_count -= 1 # One more force curve that wasn't discarded
 
-    AvExSens = np.mean(Esens)
-    StdExSens = np.std(Esens)
-    AvRetSens = np.mean(Rsens)
-    StdRetSens = np.std(Esens)
-    
-    if drop_deviant_compReg:
+        else:
+            if failed_curve_handling == 'replace_nan':
+                nanarr = np.empty_like(z)
+                nanarr[:] = numpy.nan
+
+                ExtendsXY.append(nanarr)
+                RetractsXY.append(nanarr)
+                ExtendsForce.append(nanarr)
+                RetractsForce.append(nanarr)
+
+            elif failed_curve_handling == 'retain':
+                ExtendsXY.append(ExtendXY)
+                RetractsXY.append(RetractXY)
+                ExtendsForce.append(ExtendForce)
+                RetractsForce.append(RetractForce)
+
+    if len(Esens) > 1:
+        AvExSens = np.mean(Esens)
+        StdExSens = np.std(Esens)
+        AvRetSens = np.mean(Rsens)
+        StdRetSens = np.std(Esens)
+
+        if drop_deviant_compReg:
     # Get rid of data that deviates from the mean sensitivity
-        ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
-        RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
-        SensMask = np.logical_and(ExSensMask, RetSensMask)
+            ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
+            RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
+            SensMask = np.logical_and(ExSensMask, RetSensMask)
 
 
-        number_excluded_by_sens = np.sum(np.logical_not(SensMask))
-        if number_excluded_by_sens != 0:
-    
-            print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
-    
-            discard_count += number_excluded_by_sens
-    
-            ExtendsForce  = list(compress(ExtendsForce, SensMask))
-            RetractsForce = list(compress(RetractsForce, SensMask))
-            ExtendsXY     = list(compress(ExtendsXY, SensMask))
-            RetractsXY    = list(compress(RetractsXY, SensMask))
+            number_excluded_by_sens = np.sum(np.logical_not(SensMask))
+            if number_excluded_by_sens != 0:
 
-            # Recalculate the mean sensitivity
-            AvExSens = np.mean(np.array(Esens)[SensMask])
-            AvRetSens = np.mean(np.array(Rsens)[SensMask])
+                print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
+
+                discard_count += number_excluded_by_sens
+
+                ExtendsForce  = list(compress(ExtendsForce, SensMask))
+                RetractsForce = list(compress(RetractsForce, SensMask))
+                ExtendsXY     = list(compress(ExtendsXY, SensMask))
+                RetractsXY    = list(compress(RetractsXY, SensMask))
+
+                # Recalculate the mean sensitivity
+                AvExSens = np.mean(np.array(Esens)[SensMask])
+                AvRetSens = np.mean(np.array(Rsens)[SensMask])
+    else:
+        AvExSens = np.nan
+        StdExSens = np.nan
+        AvRetSens = np.nan
+        StdRetSens = np.nan
+        print ('Sensitivity not calculated, as no curves passed "is_data"')
+
+
+
+        
 
 
     # Print stuff that you might want to know
@@ -292,6 +347,19 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     print (f'{discard_count}/{len(zpos)-1} discarded' )
 
     return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
+
+
+def plotdebug(debug=False, curves=[None], labels=[None], clear=False):
+    if debug:
+        if clear:
+            ax.cla()
+        for c, l in zip(curves, labels):
+            try:
+                ax.plot(*c, label=l)
+            except:
+                print(f"plotdebug could not plot curve with label: {l}")
+
+    return
 
 
 def convert_defl_to_mV(defl, defl_units, invOLS=None):
@@ -331,25 +399,52 @@ def convert_zpos_to_nm(zpos, zpos_units, flip=True):
     return zpos
 
 
-def is_data_sanitary(data):
+def is_data_sanitary(data, data_sanitary=True):
     """
     Takes Force vs Separation data and determines if theres anything seriously wrong with it.
+
+    data_sanitary allows for previously determined values of is_data_sanitary to the function.
+    If data_sanitary is not True, then is_data_sanitary returns data_sanitary without performing
+    any processing.
     """
+    if is_data_sanitary is True:
+        for datum in data:
+            if np.any(datum) == None:
+                return False
+            elif np.any(np.isnan(datum)):
+                return False
+            elif np.ndim(datum) == 1 and datum.shape[0] < 100:
+                return False
+            elif np.ndim(datum) == 2 and datum.shape[1] < 100:
+                return False
 
-    for datum in data:
-        if np.any(datum) == None:
-            return False
-        elif np.any(np.isnan(datum)):
-            return False
-        elif np.ndim(datum) == 1 and datum.shape[0] < 100:
-            return False
-        elif np.ndim(datum) == 2 and datum.shape[1] < 100:
-            return False
-
-    return True
+    else:
+        return data_sanitary
 
 
 def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, forcecrop=0.15):
+    """
+    'cleans up' approach and retract data. It does this by cropping out forces above a certain threshold
+    and re-zeroing them.
+
+    """
+    mask = (np.abs(ApproachForceData[1])<forcecrop)
+    newApproachForceData = ApproachForceData.T[mask].T
+    newApproachForceData = zeroForceCurves(newApproachForceData)
+
+    mask = (np.abs(RetractForceData[1])<forcecrop)
+    newRetractForceData = RetractForceData.T[mask].T
+    newRetractForceData = zeroForceCurves(newRetractForceData)
+
+
+    return newApproachForceData, newRetractForceData
+
+
+def old_clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, forcecrop=0.15):
+    """
+    'cleans up' approach and retract data
+
+    """
     mask = (np.abs(ApproachForceData[1])<forcecrop)
     newApproachForceData = ApproachForceData.T[mask].T
     newApproachForceData = zeroForceCurves(newApproachForceData)
@@ -368,14 +463,21 @@ def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, 
 
 
 
-def splitExtendRetract(ForceData):
+
+def splitExtendRetract(ForceData, flip=False):
     """
     ForceData : a 2xN array, where the [0] is the Z-piezo position and [1] is the deflection voltage
+
+    flip : bool, if True, constant compliance region is on the left.
     """
 
     maxIndex  = np.argmax(ForceData[1])
     Extend    = ForceData[:,0:maxIndex]
     Retract   = np.flip(ForceData[:,maxIndex:], axis=1)
+
+    if flip:
+        Extend  = np.flip(Extend, axis=1)
+        Retract = np.flip(Retract, axis=1)
 
     return Extend, Retract
 
@@ -430,7 +532,7 @@ def remove_dwell_drift(XYdata):
     if window_length%2 == 0:
         window_length += 1
 
-    newraw = savgol_filter(raw,window_length, 1)
+    newraw = savgol_filter(raw, window_length, 1)
     newrawgrad = np.gradient(newraw)
 
     mask = np.abs(newrawgrad)>np.quantile(np.abs(newrawgrad), 0.5)/2
