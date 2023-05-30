@@ -23,7 +23,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          defl_units='nm', zpos_units='nm',
                          zpos_negative=True, max_to_process=None,
                          number_of_curves_before_equil=0, 
-                         override_involS=False, override_spring_constant=False,
+                         override_invOLS=False, override_spring_constant=False,
                          flatten_retract_with_approach=False, drop_deviant_compReg=False,
                          debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
     """
@@ -65,10 +65,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         Number of forcecurves to discard at the start of zpos and defl, useful as the first force curves can sometimes
         be erroneous. Takes zpos = zpos[number_of_curves_before_equil:] and defl = defl[number_of_curves_before_equil:]
 
-    override_involS (False, or float):
+    override_invOLS (False, or float):
         Whether or not to use a fixed optical sensitivity or to calculate the optical sensitivity from the constant
-        compliance region of each force curve. If False, the sensitivity is calculated from each force curve. If not False,
-        then the value of override_involS is used as the involS.
+        compliance region of each force curve. If False, the sensitivity is calculated from each force curve. If True,
+        then the value contained in metadict will be used. Otherwise, the value of override_invOLS (in nm/V) is used as the involS.
 
     override_spring_constant (False, or float):
         Whether or not to override the spring constant in metadict. If False, does not override. If not False, the value of
@@ -110,17 +110,27 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     replace_count = 0
     dodgy_count   = 0
 
+    # assertions to catch invalid parameter combos
     if drop_deviant_compReg:
         assert failed_curve_handling == 'remove', 'If drop_deviant_compReg is True, failed_curve_handling must be "remove"'
 
-    if debug:
-        fig, ax = plt.subplots()
-    else:
-        ax = None
+    if override_invOLS is True:
+        assert metadict != None, 'You want to force a involS, but the metadict is empty. Either set\
+                                  override_invOLS to False (allow it be be calculated from each constant\
+                                  compliance region) or specify the involS you want to force.'
+
+        assert 'InvOLS' in metadict.keys(), 'You want to force a involS, but the metadict does not contain one. Either set\
+                                             override_invOLS to False (allow it be be calculated from each constant\
+                                             compliance region) or specify the involS you want to force.'
+
+        override_invOLS = float(metadict['InvOLS'])*1e9 # This will be undone later, but allows override_invOLS to be supplied 
+                                                        # in nm/V
+
+
 
     # Determine global parameters
-    if override_involS:
-        invOLS = override_involS
+    if override_invOLS:
+        invOLS = float(override_invOLS)/1e9
     else:
         if metadict == None:
             invOLS = 1
@@ -128,6 +138,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             invOLS = float(metadict['InvOLS'])
         else:
             invOLS = 1
+
 
     if override_spring_constant:
         spring_constant = override_spring_constant
@@ -138,7 +149,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             original_spring_constant = metadict['SpringConstant']
         else:
             original_spring_constant = 1
-
     else:
         if metadict == None:
             spring_constant = 1
@@ -149,8 +159,20 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
         original_spring_constant = spring_constant
 
-    print (f"InvOLS: {invOLS}, Spring constant: {spring_constant}")
 
+
+    # Draw an axis to use for debugging
+    if debug:
+        fig, ax = plt.subplots()
+    else:
+        ax = None
+
+
+
+
+    print (f"InvOLS: {invOLS} nm/V, Spring constant: {spring_constant}")
+    if override_invOLS is False:
+        print ("Note: invOLS will be calculated from the constant compliance region of each force curve. If this is not desired set override_invOLS=True.")
 
     # trim data
     if max_to_process == None:
@@ -238,7 +260,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Calculate sensitivity - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+            if override_invOLS is False:
+                Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+            else:
+                Esen, Rsen = override_invOLS, override_invOLS
         elif data_sanitary is False:
             data_sanitary = 'Failed on split and normalize'
 
@@ -252,14 +277,13 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Convert to force vs. separation  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         if data_sanitary is True:
             average_sens = (Esen + Rsen)/2
+            print (average_sens)
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False, ax=ax)
         elif data_sanitary is False:
             data_sanitary = 'Failed to find constant compliance sensitivity'
 
-        if np.any(ExtendForce) == None:
-            print ('force vs sep' , data_sanitary, (number_of_curves_before_equil + idx))
 
         # Correct remaining baseline curvature   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
@@ -340,7 +364,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             number_excluded_by_sens = np.sum(np.logical_not(SensMask))
             if number_excluded_by_sens != 0:
 
-                print (f"The following were excluded on the basis of their optical sensitivity being more than two standard deviations away from the mean:\n {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
+                print (f"The following were excluded on the basis of their optical sensitivity being more than\
+                        two standard deviations away from the mean:\n \
+                        {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
 
                 discard_count += number_excluded_by_sens
 
@@ -360,7 +386,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         print ('Sensitivity not calculated, as no curves passed "is_data"')
 
 
-    # Print stuff that you might want to know
+    # Print stuff that you might want to know - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     print("Extend Sensitivity: " + str(AvExSens) + " nm/V")
     print("Retract Sensitivity: " + str(AvRetSens) + " nm/V")
     num_curves = len(zpos) - number_of_curves_before_equil
@@ -663,7 +689,6 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
     """
     Converts the data to separation (if spring constant != 1, also converts to force)
     """
-
     if sensitivity==None:
         sensitivity = calculateSensitivity(ForceData)
 
