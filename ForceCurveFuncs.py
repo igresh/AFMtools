@@ -106,13 +106,15 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     Esens = []
     Rsens = []
 
-    discard_count = len(zpos)-1
+    discard_count = len(zpos) - 1 - number_of_curves_before_equil
 
     if drop_deviant_compReg:
         assert failed_curve_handling == 'remove', 'If drop_deviant_compReg is True, failed_curve_handling must be "remove"'
 
     if debug:
         fig, ax = plt.subplots()
+    else:
+        ax = None
 
     # Determine global parameters
     if override_involS:
@@ -180,8 +182,8 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             ax.cla()
 
 
-
         data_sanitary = is_data_sanitary([z, d], data_sanitary=data_sanitary)
+
         if data_sanitary is True:
             d = convert_defl_to_mV(d, defl_units, invOLS)
             z = convert_zpos_to_nm(z, zpos_units, flip=zpos_negative)
@@ -203,7 +205,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary(XYdata, data_sanitary=data_sanitary)
         if data_sanitary is True:
             ExtendXY, RetractXY = splitExtendRetract(XYdata, flip=True)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
         elif data_sanitary is False:
             data_sanitary = 'Failed on dwell drift removal'
 
@@ -212,8 +214,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Remove baseline  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            ExtendXY, RetractXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4), RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
+            ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4, debug=debug)
+            RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4, debug=debug)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
+
         elif data_sanitary is False:
             data_sanitary = 'Failed on splitExtendRetract'
 
@@ -223,7 +227,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
             ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=True)
+            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
         elif data_sanitary is False:
             data_sanitary = 'Failed on first baseline correction'
 
@@ -237,8 +241,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             data_sanitary = 'Failed on split and normalize'
 
 
-        if np.isnan(Esen) or np.isnan(Rsen):
-            data_sanitary = False
+        if data_sanitary is True:
+            if np.isnan(Esen) or np.isnan(Rsen):
+                data_sanitary = False
 
 
 
@@ -247,11 +252,12 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             average_sens = (Esen + Rsen)/2
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
-            plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False)
+            plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False, ax=ax)
         elif data_sanitary is False:
             data_sanitary = 'Failed to find constant compliance sensitivity'
 
-
+        if np.any(ExtendForce) == None:
+            print ('force vs sep' , data_sanitary, (number_of_curves_before_equil + idx))
 
         # Correct remaining baseline curvature   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
@@ -261,10 +267,12 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         elif data_sanitary is False:
             print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
 
-
+        if np.any(ExtendForce) == None:
+            print ('baseline curve' , data_sanitary, (number_of_curves_before_equil + idx), RetractForce)
 
         #Clean up data, one last time
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
+
         if data_sanitary is True:
             if abs_forcecrop:
                 ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop)
@@ -272,13 +280,13 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             data_sanitary = 'Failed on final baseline curvature correction'
 
 
-        # HERE WE NEED TO IMPLIMENT failed_curve_handling FLAG
 
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
         if data_sanitary is True:
             pass
         elif data_sanitary is False:
             data_sanitary = 'Failed on final cleanup'
+            print(f"entry {number_of_curves_before_equil + idx}: {data_sanitary}")
         else:
             print(f"entry {number_of_curves_before_equil + idx}: {data_sanitary}")
 
@@ -291,6 +299,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             RetractsForce.append(RetractForce)
             Esens.append(Esen)
             Rsens.append(Rsen)
+
+            if np.any(ExtendForce) == None:
+                print ('wtf' , data_sanitary)
 
             discard_count -= 1 # One more force curve that wasn't discarded
 
@@ -309,6 +320,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                 RetractsXY.append(RetractXY)
                 ExtendsForce.append(ExtendForce)
                 RetractsForce.append(RetractForce)
+            elif failed_curve_handling == 'remove':
+                # if debug:
+                print('Data discarded')
 
     if len(Esens) > 1:
         AvExSens = np.mean(Esens)
@@ -358,7 +372,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
 
 
-def plotdebug(debug=False, curves=[None], labels=[None], clear=False):
+def plotdebug(ax, debug=False, curves=[None], labels=[None], clear=False):
     if debug:
         if clear:
             ax.cla()
@@ -416,7 +430,7 @@ def is_data_sanitary(data, data_sanitary=True):
     If data_sanitary is not True, then is_data_sanitary returns data_sanitary without performing
     any processing.
     """
-    if is_data_sanitary is True:
+    if data_sanitary is True:
         for datum in data:
             if np.any(datum) == None:
                 return False
@@ -426,6 +440,8 @@ def is_data_sanitary(data, data_sanitary=True):
                 return False
             elif np.ndim(datum) == 2 and datum.shape[1] < 100:
                 return False
+            else:
+                return True
 
     else:
         return data_sanitary
@@ -550,7 +566,7 @@ def remove_dwell_drift(XYdata):
 
 
 
-def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None):
+def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None, debug=False):
     X, Y = ForceData
     Xrange = np.max(X) - np.min(X)
     Partition_mask = X > np.min(X) + Xrange*approachFraction
@@ -589,7 +605,8 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
 
 
     else:
-        print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}')
+        if debug:
+            print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}')
         return None, None
 
 
@@ -601,6 +618,8 @@ def zeroForceCurves(ForceData):
     (NOT displacement / z-piezeo position curves - use "ConvertToForceVSep" to convert
     to force vs. separation first)
     """
+
+    ForceData = np.array(ForceData) # Sanitise data input
 
     if ForceData.ndim == 3:
         for FD in ForceData:
@@ -624,12 +643,17 @@ def zeroForceCurves(ForceData):
 
 
 def calculateSensitivity(ForceData):
-    compliance = extractHardContactRegion(ForceData)
 
-    comp_len_cutoff = int(compliance.shape[1]/1.5)
-    Sen = -1/stats.linregress(compliance[0, :comp_len_cutoff], compliance[1, :comp_len_cutoff]).slope
+    try:
+        compliance = extractHardContactRegion(ForceData)
 
-    return Sen
+        comp_len_cutoff = int(compliance.shape[1]/1.5)
+        Sen = -1/stats.linregress(compliance[0, :comp_len_cutoff], compliance[1, :comp_len_cutoff]).slope
+
+        return Sen
+
+    except:
+        return np.nan
 
 
 
