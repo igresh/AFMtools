@@ -106,7 +106,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     Esens = []
     Rsens = []
 
-    discard_count = len(zpos) - 1 - number_of_curves_before_equil
+    discard_count = 0
+    replace_count = 0
+    dodgy_count   = 0
 
     if drop_deviant_compReg:
         assert failed_curve_handling == 'remove', 'If drop_deviant_compReg is True, failed_curve_handling must be "remove"'
@@ -299,12 +301,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             RetractsForce.append(RetractForce)
             Esens.append(Esen)
             Rsens.append(Rsen)
-
-            if np.any(ExtendForce) == None:
-                print ('wtf' , data_sanitary)
-
-            discard_count -= 1 # One more force curve that wasn't discarded
-
         else:
             if failed_curve_handling == 'replace_nan':
                 nanarr = np.empty_like(z)
@@ -314,15 +310,19 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                 RetractsXY.append(nanarr)
                 ExtendsForce.append(nanarr)
                 RetractsForce.append(nanarr)
+                replace_count += 1
 
             elif failed_curve_handling == 'retain':
                 ExtendsXY.append(ExtendXY)
                 RetractsXY.append(RetractXY)
                 ExtendsForce.append(ExtendForce)
                 RetractsForce.append(RetractForce)
+                dodgy_count += 1
+
             elif failed_curve_handling == 'remove':
-                # if debug:
-                print('Data discarded')
+                discard_count += 1
+                if debug:
+                    print('Data discarded')
 
     if len(Esens) > 1:
         AvExSens = np.mean(Esens)
@@ -331,7 +331,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         StdRetSens = np.std(Esens)
 
         if drop_deviant_compReg:
-    # Get rid of data that deviates from the mean sensitivity
+        # Get rid of data that deviates from the mean sensitivity
             ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
             RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
             SensMask = np.logical_and(ExSensMask, RetSensMask)
@@ -360,14 +360,16 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         print ('Sensitivity not calculated, as no curves passed "is_data"')
 
 
-
-        
-
-
     # Print stuff that you might want to know
     print("Extend Sensitivity: " + str(AvExSens) + " nm/V")
     print("Retract Sensitivity: " + str(AvRetSens) + " nm/V")
-    print (f'{discard_count}/{len(zpos)-1} discarded' )
+    num_curves = len(zpos) - number_of_curves_before_equil
+    if failed_curve_handling == 'remove':
+        print (f'{discard_count}/{num_curves} curves did not meet criteria and were discarded' )
+    elif failed_curve_handling == 'replace_nan':
+        print (f'{replace_count}/{num_curves} curves were replaced with nan arrays')
+    elif failed_curve_handling == 'retain':
+        print (f'{dodgy_count}/{num_curves} curves that did not meet criteria were left in the dataset')
 
     return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
 
