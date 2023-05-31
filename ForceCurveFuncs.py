@@ -328,7 +328,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         else:
             if failed_curve_handling == 'replace_nan':
                 nanarr = np.empty_like(z)
-                nanarr[:] = numpy.nan
+                nanarr[:] = np.nan
 
                 ExtendsXY.append(nanarr)
                 RetractsXY.append(nanarr)
