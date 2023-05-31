@@ -277,7 +277,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Convert to force vs. separation  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         if data_sanitary is True:
             average_sens = (Esen + Rsen)/2
-            print (average_sens)
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False, ax=ax)
