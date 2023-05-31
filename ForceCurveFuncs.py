@@ -162,10 +162,8 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
 
     # Draw an axis to use for debugging
-    if debug:
-        fig, ax = plt.subplots()
-    else:
-        ax = None
+
+    debugplotter = plotdebug(debug=debug)
 
 
 
@@ -197,13 +195,11 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         Rsen = np.nan
 
         if debug:
-            ax.legend()
-            fig.show()
-
+            debugplotter.show_plot()
             userinput = input("Do you want to continue?")
             if userinput.lower() != 'y':
                 break
-            ax.cla()
+            debugplotter.clear_plot()
 
 
         data_sanitary = is_data_sanitary([z, d], data_sanitary=data_sanitary)
@@ -229,7 +225,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary(XYdata, data_sanitary=data_sanitary)
         if data_sanitary is True:
             ExtendXY, RetractXY = splitExtendRetract(XYdata, flip=True)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
+            debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed on dwell drift removal'
 
@@ -238,9 +234,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Remove baseline  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4, debug=debug)
-            RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4, debug=debug)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
+            ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4, debugger=debugplotter)
+            RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4, debugger=debugplotter)
+            debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
 
         elif data_sanitary is False:
             data_sanitary = 'Failed on splitExtendRetract'
@@ -251,7 +247,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
             ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
-            plotdebug(debug=debug, curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False, ax=ax)
+            debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed on first baseline correction'
 
@@ -279,7 +275,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             average_sens = (Esen + Rsen)/2
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
-            plotdebug(debug=debug, curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False, ax=ax)
+            debugplotter.plot( curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed to find constant compliance sensitivity'
 
@@ -399,17 +395,33 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
 
 
-def plotdebug(ax, debug=False, curves=[None], labels=[None], clear=False):
-    if debug:
-        if clear:
-            ax.cla()
-        for c, l in zip(curves, labels):
-            try:
-                ax.plot(*c, label=l)
-            except:
-                print(f"plotdebug could not plot curve with label: {l}")
 
-    return
+class plotdebug (object):
+    def __init__(self, debug):
+        self.debug = debug
+
+        if self.debug:
+            self.fig, self.ax = plt.subplots()
+
+    def plot(self, curves=[None], labels=[None], clear=False):
+        if self.debug:
+            if clear:
+                self.ax.cla()
+            for c, l in zip(curves, labels):
+                try:
+                    self.ax.plot(*c, label=l)
+                    ax.legend()
+                except:
+                    print(f"plotdebug could not plot curve with label: {l}")
+
+        return
+
+    def show_plot(self):
+        self.fig.show()
+
+    def clear_plot(self):
+        self.ax.cla()
+
 
 
 def convert_defl_to_mV(defl, defl_units, invOLS=None):
@@ -593,12 +605,25 @@ def remove_dwell_drift(XYdata):
 
 
 
-def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None, debug=False):
+def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceData=None, debugger=False):
+    """
+    ForceData
+
+    order
+
+    approachFraction
+
+    bonus_ForceData, False or array
+
+    """
     X, Y = ForceData
     Xrange = np.max(X) - np.min(X)
     Partition_mask = X > np.min(X) + Xrange*approachFraction
     gradient_mask = None
     window_length = int(len(Y)/50)
+
+    rejection_cutoff=approachFraction*len(X)/2
+
     if window_length%2 == 0:
         window_length += 1
 
@@ -612,7 +637,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
     else:
         mask = Partition_mask
 
-    if np.sum(mask) > 100: #Need at least 100 eligible datapoints to continue
+    if np.sum(mask) > rejection_cutoff: #Need at least 100 eligible datapoints to continue
         fit_params = polynomial.polyfit(X[mask],Y[mask], order)
         # m, c, r_value, p_value, std_err = stats.linregress(X[mask],Y[mask])
 
@@ -632,8 +657,10 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
 
 
     else:
-        if debug:
-            print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}')
+        if debugger:
+            print (f"rejeciton cutoff for mask length: {rejection_cutoff}")
+            print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}, num in mask: {np.sum(mask)}')
+            debugger.plot(debug=True, curves=[[X[mask], Y[mask]]], labels=['Removebaseline mask'], clear=False)
         return None, None
 
 
