@@ -95,6 +95,22 @@ def variable_lengththresh(xpos, start_x=30, tmin=1, tmax=30, cutoff=250):
 
     return tmin*frac + tmax*(1-frac)
 
+
+def find_mask_centers(mask):
+    bounds = np.where(np.diff(mask))[0]
+    centres = np.average([bounds[1:], bounds[:-1]], axis=0).astype(int) 
+
+    if mask[0] == True:
+        centres = centres[1::2]
+    else:
+        centres = centres[::2]
+
+    new_mask = np.zeros_like(mask)
+    new_mask[centres] = 1
+    new_mask = new_mask.astype(bool)
+    
+    return new_mask
+
 def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False, lowest_value=5, smooth_window_nm=2.5, ythreshold=0.01, ycutoff=0.02):
     """
     Returns values in distance from susbtrate and adhesion force (nN) (as a positive quantity)
@@ -164,6 +180,9 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False, lowest_value=5,
     yddifmask = yddiff < -8e-5
     yddifmask[PO_x<15] = False
 
+    yddifmask = find_mask_centers (yddifmask)
+
+
     splits = np.argwhere(np.any([xdifmask,ydifmask, yddifmask], axis=0))[:,0]
 
     # debugger.scatter([[PO_x[splits], PO_newy[splits]]], labels=['splits'])
@@ -192,7 +211,7 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False, lowest_value=5,
         if start_slice < 0: # If start slice < 0 will stuff up indexing later
             start_slice = 0
 
-        end_slice = sx2-10
+        end_slice = sx2-2
         if end_slice > len(PO_x):
             end_slice = len(PO_x)-1
 
