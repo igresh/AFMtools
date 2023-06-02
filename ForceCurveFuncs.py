@@ -403,16 +403,30 @@ class plotdebug (object):
         if self.debug:
             self.fig, self.ax = plt.subplots()
 
-    def plot(self, curves=[None], labels=[None], clear=False):
+    def plot(self, curves=[None], labels=[None], clear=False, color=None):
         if self.debug:
             if clear:
                 self.ax.cla()
             for c, l in zip(curves, labels):
                 try:
-                    self.ax.plot(*c, label=l)
-                    ax.legend()
+                    self.ax.plot(c[0], c[1], label=l, color=color)
+                    self.ax.legend()
                 except:
-                    print(f"plotdebug could not plot curve with label: {l}")
+                    print(f"plotdebug could not plot curve with label: {l}, len: {len(c[0])}")
+
+        return
+
+
+    def scatter(self, curves=[None], labels=[None], clear=False, color=None, marker=None):
+        if self.debug:
+            if clear:
+                self.ax.cla()
+            for c, l in zip(curves, labels):
+                try:
+                    self.ax.scatter(c[0], c[1], label=l, color=color, marker=marker, zorder=10)
+                    self.ax.legend()
+                except:
+                    print(f"plotdebug could not scatter curve with label: {l}")
 
         return
 
@@ -637,7 +651,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
         if debugger:
             print (f"rejeciton cutoff for mask length: {rejection_cutoff}")
             print (f'Num in Partition_mask: {np.sum(Partition_mask)}, num in gradient_mask: {np.sum(gradient_mask)}, num in mask: {np.sum(mask)}')
-            debugger.plot(debug=True, curves=[[X[mask], Y[mask]]], labels=['Removebaseline mask'], clear=False)
+            debugger.plot(curves=[[X[mask], Y[mask]]], labels=['Removebaseline mask'], clear=False)
         return None, None
 
 
