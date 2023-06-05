@@ -403,28 +403,28 @@ class plotdebug (object):
         if self.debug:
             self.fig, self.ax = plt.subplots()
 
-    def plot(self, curves=[None], labels=[None], clear=False, color=None):
+    def plot(self, curves=[None], labels=[None], clear=False, **kwrds):
         if self.debug:
             if clear:
                 self.ax.cla()
             for c, l in zip(curves, labels):
                 try:
-                    self.ax.plot(c[0], c[1], label=l, color=color)
-                    self.ax.legend()
+                    self.ax.plot(c[0], c[1], label=l, **kwrds)
+                    self.make_legend()
                 except:
                     print(f"plotdebug could not plot curve with label: {l}, len: {len(c[0])}")
 
         return
 
 
-    def scatter(self, curves=[None], labels=[None], clear=False, color=None, marker=None):
+    def scatter(self, curves=[None], labels=[None], clear=False, **kwrds):
         if self.debug:
             if clear:
                 self.ax.cla()
             for c, l in zip(curves, labels):
                 try:
-                    self.ax.scatter(c[0], c[1], label=l, color=color, marker=marker, zorder=10)
-                    self.ax.legend()
+                    self.ax.scatter(c[0], c[1], label=l, **kwrds)
+                    self.make_legend()
                 except:
                     print(f"plotdebug could not scatter curve with label: {l}")
 
@@ -435,6 +435,12 @@ class plotdebug (object):
 
     def clear_plot(self):
         self.ax.cla()
+
+
+    def make_legend(self):
+        handles, labels = self.ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        self.ax.legend(by_label.values(), by_label.keys())
 
 
 
