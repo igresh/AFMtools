@@ -201,12 +201,14 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
     overall_gradient_mask[-30:] = False
     overall_gradient, overall_intercept = np.polyfit(x[overall_gradient_mask], y[overall_gradient_mask], 1)
 
+
+
     newy = variable_smoothing(x, y,
                               initial_window=numdp_per_nm*low_smooth_window_nm,
                               final_window=numdp_per_nm*high_smooth_window_nm,
                               start_pos=low_dist, end_pos=high_dist)
 
-    min_ydffthreshold =  np.quantile(np.abs(np.diff(newy[x>xhalf][:-20])), 0.95)
+    min_ydffthreshold =  2*np.quantile(np.abs(np.diff(newy[x>xhalf][:-20])), 0.98)
     xdffthreshold =  1#np.quantile(np.abs(np.diff(x[x>xhalf])), 0.99)
     mask = newy < force_cutoff
 
@@ -256,10 +258,12 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
     too_small_delta = 0
     too_close_to_end = 0
 
+
+
     for [sx1, sx2] in zip(splits[:-1], splits[1:]):
-        if overall_gradient < -0.0001 and overall_intercept < 1:
+        if np.abs(overall_gradient) > 0.00007:
             if debug:
-                print (f'killing it because of gradient: {gradient} {overall_intercept}')
+                print (f'killing it because of gradient: {overall_gradient} {overall_intercept}')
             break # bin it - too hard. (if the whole curve has a negative gradient every change in derivitive looks like a pull-off)
 
 
