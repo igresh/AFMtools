@@ -176,6 +176,12 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
     x = x[~np.isnan(y)]
     y = y[~np.isnan(y)]
 
+    split_SM_curves = []
+    discarded_SM_curves = []
+    PO_x, PO_y, PO_newy=[], [], []
+
+
+
     if type(smooth_window_nm) is list:
         low_smooth_window_nm = smooth_window_nm[0]
         high_smooth_window_nm = smooth_window_nm[1]
@@ -197,11 +203,10 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
     x = x[mask1]
     y = y[mask1]
 
-    xhalf = np.max(x)/3
-    overall_gradient_mask = np.logical_and(np.abs(y) < 0.05, x>xhalf)
+    xhalf = np.max(x)/4
+    overall_gradient_mask = np.logical_and(np.abs(y) < 0.02, x>xhalf)
     overall_gradient_mask[-30:] = False
     overall_gradient, overall_intercept = np.polyfit(x[overall_gradient_mask], y[overall_gradient_mask], 1)
-
 
 
     newy = variable_smoothing(x, y,
@@ -209,143 +214,148 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
                               final_window=numdp_per_nm*high_smooth_window_nm,
                               start_pos=low_dist, end_pos=high_dist)
 
-    min_ydffthreshold =  2*np.quantile(np.abs(np.diff(newy[x>xhalf][:-20])), 0.98)
-    xdffthreshold =  1#np.quantile(np.abs(np.diff(x[x>xhalf])), 0.99)
+
     mask = newy < force_cutoff
 
+    if np.abs(overall_gradient) > 0.00007:
+        if debug:
+            print (f'killing it because of gradient: {overall_gradient} {overall_intercept}')
+        pass
+    elif np.sum(mask) < 50:
+        if debug:
+            print (f'killing it because no points are below force_cutoff')
 
-    PO_x = x[mask]
-    PO_y = y[mask]
-    PO_newy = newy[mask]
+    else: # continue
 
-    xdiff = savgol_filter(np.abs(PO_x), 3,1, deriv=1)
-    ydiff = savgol_filter(PO_newy, 11,1, deriv=1)
-
-    if len(PO_x) > 42:
-        yddiff = savgol_filter(ydiff, 41,2, deriv=1)
-    else:
-        yddiff = np.zeros_like(PO_x, dtype=bool)
- 
-    debugger.plot(curves=[[x, newy]], labels=['smooth', 'BL trend', 'ddiff'], color='k', zorder=10)
-    debugger.plot(curves=[[x, x*overall_gradient+overall_intercept]], labels=['BL trend', 'ddiff'], color='gray',ls='--')
-    debugger.plot(curves=[[x, x*0]], labels=['origin'], color='k',ls='--')
+        min_ydffthreshold =  2*np.quantile(np.abs(np.diff(newy[x>xhalf][:-20])), 0.98)
+        xdffthreshold =  1#np.quantile(np.abs(np.diff(x[x>xhalf])), 0.99)
 
 
-    xdifmask = xdiff>xdffthreshold
-    ydifmask = ydiff>min_ydffthreshold
+        PO_x = x[mask]
+        PO_y = y[mask]
+        PO_newy = newy[mask]
 
-    yddifmask = np.abs(yddiff) > 1e-5
-    yddifmask[PO_x<15] = False
-    yddifmask = find_mask_centers (yddifmask)
+        xdiff = savgol_filter(np.abs(PO_x), 3,1, deriv=1)
+        ydiff = savgol_filter(PO_newy, 11,1, deriv=1)
 
-
-    # key bit of code: split the curve up into regions that could be pull-off events - - - - - - - - - - - - - - - - - - -
-    splits = np.argwhere(np.any([xdifmask,ydifmask, yddifmask], axis=0))[:,0]
-
-    debugger.scatter([[PO_x[xdifmask], PO_newy[xdifmask]],
-                      [PO_x[ydifmask], PO_newy[ydifmask]],
-                      [PO_x[yddifmask], PO_newy[yddifmask]]], labels=['splits - xdif', 'splits - ydif', 'splits - yddif'], marker='x')
-
-    splits = np.concatenate([np.array([0]), splits, np.array([len(xdiff)-5])]) # add a split to the start and end.
-
-
-    # Initialize lists to capture good and bad events
-    split_SM_curves = []
-    discarded_SM_curves = []
-
-    # Initialize counting variables
-    too_short = 0
-    too_positive = 0
-    too_small_delta = 0
-    too_close_to_end = 0
-
-
-
-    for [sx1, sx2] in zip(splits[:-1], splits[1:]):
-        if np.abs(overall_gradient) > 0.00007:
-            if debug:
-                print (f'killing it because of gradient: {overall_gradient} {overall_intercept}')
-            break # bin it - too hard. (if the whole curve has a negative gradient every change in derivitive looks like a pull-off)
-
-
-        slice_length = sx2 - sx1
-        if slice_length < min_dp:
-            continue # this wont work - move on
-
-        len2 = int(slice_length/50)
-        len10 = int(slice_length/10)
-
-        if len2 < 1:
-            len2=1
-        if len10 < 1:
-            len10=1
-
-        start_slice = sx1+len2
-        if start_slice < 0: # If start slice < 0 will stuff up indexing later
-            start_slice = 0
-
-        end_slice = sx2-len2 # Cut off the last 2% of data points
-        if end_slice > len(PO_x):
-            end_slice = len(PO_x)-1
-
-        tempx = PO_x[start_slice:end_slice].copy()
-        tempy = PO_y[start_slice:end_slice].copy()
-        tempsmoothy = PO_newy[start_slice:end_slice].copy()
-
-        extramask = np.ones_like(tempx, dtype=bool)
-        extramask[np.logical_and(tempx>(tempx[-1]-len10), savgol_filter(tempsmoothy,3,1, deriv=1)>0)] = False
-
-
-        if np.sum(extramask) < min_dp:
-            continue
-
-        tempx = tempx[extramask]
-        tempy = tempy[extramask]
-        tempsmoothy = tempsmoothy[extramask]
-
-        length_nm = (tempx[-1] - tempx[0])
-        length = len(tempx)
-        if length_nm > variable_thresh(tempx[0], vstart=low_length_delta_threshold,
-                                       vend=high_length_delta_threshold, start_pos=low_dist, end_pos=high_dist):
-
-            split_mask = np.logical_and(x>tempx[0], x<tempx[-1])
-
-            gradient_PO, intercept_PO = np.polyfit(tempx, tempsmoothy, 1)
-
-            start_loc = [tempx[0], np.mean(tempsmoothy[:len10])]
-            end_loc  =  [tempx[-1], np.mean(tempsmoothy[-len10:-1])]
-            peak = np.max(tempsmoothy)
-
-            run = end_loc[0] - start_loc[0]
-            rise = end_loc[1] - peak #start_loc[1]
-
-
-            if gradient_PO > (overall_gradient + force_gradient_cutoff) or gradient_PO > (-force_gradient_cutoff):
-                discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
-                too_positive += 1
-                debugger.plot(curves=[[tempx, tempy]], labels=['too positive'], color='r', alpha=0.25)
-                debugger.plot(curves=[[tempx, tempx*gradient_PO+intercept_PO]], labels=['slope cutoff'], color='r')
-
-
-            elif rise > -force_delta_threshold:
-                discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
-                too_small_delta += 1
-                debugger.plot(curves=[[tempx, tempy]], labels=['too small delta'], color='b', alpha=0.25)
-                debugger.scatter(curves=[start_loc, end_loc], labels=['start/end', 'start/end'], color='b')
-
-
-            elif PO_x[end_slice] + 10 > x[-1]:
-                discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
-                too_close_to_end += 1
-            else:
-                debugger.plot(curves=[[tempx, tempy]], labels=['accepted'], color='xkcd:green', alpha=0.5)
-                split_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+        if len(PO_x) > 42:
+            yddiff = savgol_filter(ydiff, 41,2, deriv=1)
         else:
-            too_short += 1
-            debugger.plot(curves=[[tempx, tempy]], labels=['too short'], color='xkcd:purple', alpha=0.25)
+            yddiff = np.zeros_like(PO_x, dtype=bool)
+     
+        debugger.plot(curves=[[x, newy]], labels=['smooth', 'BL trend', 'ddiff'], color='k', zorder=10)
+        debugger.plot(curves=[[x, x*overall_gradient+overall_intercept]], labels=['BL trend', 'ddiff'], color='gray',ls='--')
+        debugger.plot(curves=[[x, x*0]], labels=['origin'], color='k',ls='--')
 
-    if debug:
-        print(f"too short: {too_short}\ntoo positive: {too_positive}\nsmall range: {too_small_delta}\ntoo close to end: {too_small_delta}")
+
+        xdifmask = xdiff>xdffthreshold
+        ydifmask = ydiff>min_ydffthreshold
+
+        yddifmask = np.abs(yddiff) > 1e-5
+        yddifmask[PO_x<15] = False
+        yddifmask = find_mask_centers (yddifmask)
+
+
+        # key bit of code: split the curve up into regions that could be pull-off events - - - - - - - - - - - - - - - - - - -
+        splits = np.argwhere(np.any([xdifmask,ydifmask, yddifmask], axis=0))[:,0]
+
+        debugger.scatter([[PO_x[xdifmask], PO_newy[xdifmask]],
+                          [PO_x[ydifmask], PO_newy[ydifmask]],
+                          [PO_x[yddifmask], PO_newy[yddifmask]]], labels=['splits - xdif', 'splits - ydif', 'splits - yddif'], marker='x')
+
+        splits = np.concatenate([np.array([0]), splits, np.array([len(xdiff)-5])]) # add a split to the start and end.
+
+
+        # Initialize counting variables
+        too_short = 0
+        too_positive = 0
+        too_small_delta = 0
+        too_close_to_end = 0
+
+
+
+        for [sx1, sx2] in zip(splits[:-1], splits[1:]):
+
+
+
+            slice_length = sx2 - sx1
+            if slice_length < min_dp:
+                continue # this wont work - move on
+
+            len2 = int(slice_length/50)
+            len10 = int(slice_length/10)
+
+            if len2 < 1:
+                len2=1
+            if len10 < 1:
+                len10=1
+
+            start_slice = sx1+len2
+            if start_slice < 0: # If start slice < 0 will stuff up indexing later
+                start_slice = 0
+
+            end_slice = sx2-len2 # Cut off the last 2% of data points
+            if end_slice > len(PO_x):
+                end_slice = len(PO_x)-1
+
+            tempx = PO_x[start_slice:end_slice].copy()
+            tempy = PO_y[start_slice:end_slice].copy()
+            tempsmoothy = PO_newy[start_slice:end_slice].copy()
+
+            extramask = np.ones_like(tempx, dtype=bool)
+            extramask[np.logical_and(tempx>(tempx[-1]-len10), savgol_filter(tempsmoothy,3,1, deriv=1)>0)] = False
+
+
+            if np.sum(extramask) < min_dp:
+                continue
+
+            tempx = tempx[extramask]
+            tempy = tempy[extramask]
+            tempsmoothy = tempsmoothy[extramask]
+
+            length_nm = (tempx[-1] - tempx[0])
+            length = len(tempx)
+            if length_nm > variable_thresh(tempx[0], vstart=low_length_delta_threshold,
+                                           vend=high_length_delta_threshold, start_pos=low_dist, end_pos=high_dist):
+
+                split_mask = np.logical_and(x>tempx[0], x<tempx[-1])
+
+                gradient_PO, intercept_PO = np.polyfit(tempx, tempsmoothy, 1)
+
+                start_loc = [tempx[0], np.mean(tempsmoothy[:len10])]
+                end_loc  =  [tempx[-1], np.mean(tempsmoothy[-len10:-1])]
+                peak = np.max(tempsmoothy)
+
+                run = end_loc[0] - start_loc[0]
+                rise = end_loc[1] - peak #start_loc[1]
+
+
+                if gradient_PO > (overall_gradient + force_gradient_cutoff) or gradient_PO > (-force_gradient_cutoff):
+                    discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+                    too_positive += 1
+                    debugger.plot(curves=[[tempx, tempy]], labels=['too positive'], color='r', alpha=0.25)
+                    debugger.plot(curves=[[tempx, tempx*gradient_PO+intercept_PO]], labels=['slope cutoff'], color='r')
+
+
+                elif rise > -force_delta_threshold:
+                    discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+                    too_small_delta += 1
+                    debugger.plot(curves=[[tempx, tempy]], labels=['too small delta'], color='b', alpha=0.25)
+                    debugger.scatter(curves=[start_loc, end_loc], labels=['start/end', 'start/end'], color='b')
+
+
+                elif PO_x[end_slice] + 10 > x[-1]:
+                    discarded_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+                    too_close_to_end += 1
+                else:
+                    debugger.plot(curves=[[tempx, tempy]], labels=['accepted'], color='xkcd:green', alpha=0.5)
+                    split_SM_curves.append([abs(x[split_mask]), -y[split_mask]])
+            else:
+                too_short += 1
+                debugger.plot(curves=[[tempx, tempy]], labels=['too short'], color='xkcd:purple', alpha=0.25)
+
+        if debug:
+            print(f"too short: {too_short}\ntoo positive: {too_positive}\nsmall range: {too_small_delta}\ntoo close to end: {too_small_delta}")
 
 
     if verbose:
