@@ -117,7 +117,8 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
                     force_delta_threshold=0.01,
                     low_dist = 50,
                     high_dist = 200,
-                    force_gradient_cutoff=0.001
+                    force_gradient_cutoff=0.001,
+                    min_dp = 15
                     ):
     """
     Returns values in distance from susbtrate and adhesion force (nN) (as a positive quantity)
@@ -268,7 +269,7 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
 
 
         slice_length = sx2 - sx1
-        if slice_length < 10:
+        if slice_length < min_dp:
             continue # this wont work - move on
 
         len2 = int(slice_length/50)
@@ -295,7 +296,7 @@ def find_SMpulloffs(ForceSepRetract, verbose=False, debug=False,
         extramask[np.logical_and(tempx>(tempx[-1]-len10), savgol_filter(tempsmoothy,3,1, deriv=1)>0)] = False
 
 
-        if np.sum(extramask) < 10:
+        if np.sum(extramask) < min_dp:
             continue
 
         tempx = tempx[extramask]
