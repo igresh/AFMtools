@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.signal import savgol_filter
-from ForceCurveFuncs import plotdebug
+from Utility import plotdebug
 import copy
 
 
