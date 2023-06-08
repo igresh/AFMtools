@@ -713,7 +713,7 @@ def resampleForceDataArray(ForceData):
         #Since the ForceData is just a single nan, populating the force curve
         #so that the x values are the same, but all of the y values are 0.
         if not isnan: 
-            z = ForceData[data_index][0]
+            z = data
             localMin = min(z)
             localMax = max(z)
     
