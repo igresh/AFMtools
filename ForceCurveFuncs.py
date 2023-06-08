@@ -686,29 +686,33 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
 
 
 def resampleForceDataArray(ForceData):
+    """
+    todo
+
+
+    """
+
     maxZval = 0
     minZval = 0
     maxLen = 0
     
     #Because I was not able to get np.isnan() to work - this was the rather
     #unelegant solution that I was able to find.
-    fcs_nan = np.zeros(len(ForceData))
-    for i in range(len(ForceData)):
-        fc_nan = pd.isna(ForceData[i])
-        if np.sum(fc_nan) > 0:
-            fcs_nan[i] = True
-        else:
-            fcs_nan[i] = False
+    # fcs_nan = np.zeros(len(ForceData))
+    # for i in range(len(ForceData)):
+    #     fc_nan = pd.isna(ForceData[i])
+    #     if np.sum(fc_nan) > 0:
+    #         fcs_nan[i] = True
+    #     else:
+    #         fcs_nan[i] = False
     
      
-    for data_index in range(len(ForceData)):
+    for idx, data in enumerate(ForceData):
+        isnan = np.any(np.isnan(data))
+
         #Since the ForceData is just a single nan, populating the force curve
         #so that the x values are the same, but all of the y values are 0.
-        if fcs_nan[data_index] == 1:
-            ForceData[data_index] = np.zeros((2,len(ForceData[0][1])))
-            ForceData[data_index][0] = ForceData[0][0]
-            
-        else:
+        if not isnan: 
             z = ForceData[data_index][0]
             localMin = min(z)
             localMax = max(z)
@@ -722,11 +726,18 @@ def resampleForceDataArray(ForceData):
             if maxLen < len(z):
                 maxLen = len(z)
 
+
     newZ = np.linspace(minZval, maxZval, num=maxLen)
 
     newForceData = []
 
+    # now doing nan-handling here
     for data in ForceData:
-        newForceData.append([newZ, np.interp(newZ, data[0], data[1], right=np.nan)])
+        isnan = np.any(np.isnan(data))
+
+        if isnan:
+            newForceData.append([newZ, np.zeros_like(newZ)])
+        else:
+            newForceData.append([newZ, np.interp(newZ, data[0], data[1], right=np.nan)])
 
     return np.array(newForceData)
