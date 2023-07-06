@@ -170,7 +170,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
 
 
-    print (f"InvOLS: {invOLS} nm/V, Spring constant: {spring_constant}")
+    print (f"InvOLS: {invOLS} nm/V, Sfpring constant: {spring_constant}")
     if override_invOLS is False:
         print ("Note: invOLS will be calculated from the constant compliance region of each force curve. If this is not desired set override_invOLS=True.")
 
@@ -263,7 +263,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             else:
                 Esen, Rsen = override_invOLS, override_invOLS
         elif data_sanitary is False:
-            data_sanitary = 'Failed on split and normalize'
+            data_sanitary = 'failed on zero force curves'
 
 
         if data_sanitary is True:
@@ -297,8 +297,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
 
         if data_sanitary is True:
-            if abs_forcecrop:
-                ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop)
+            ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop)
         elif data_sanitary is False:
             data_sanitary = 'Failed on final baseline curvature correction'
 
@@ -461,18 +460,23 @@ def is_data_sanitary(data, data_sanitary=True):
         return data_sanitary
 
 
-def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, forcecrop=0.15):
+def clean_forceData(ApproachForceData, RetractForceData, forcecrop=False):
     """
     'cleans up' approach and retract data. It does this by cropping out forces above a certain threshold
     and re-zeroing them.
 
     """
-    mask = (np.abs(ApproachForceData[1])<forcecrop)
-    newApproachForceData = ApproachForceData.T[mask].T
-    newApproachForceData = zeroForceCurves(newApproachForceData)
+    if forcecrop:
+        approach_mask = (np.abs(ApproachForceData[1])<forcecrop)
+        retract_mask  = (np.abs(RetractForceData[1])<forcecrop)
+        newApproachForceData = ApproachForceData.T[approach_mask].T
+        newRetractForceData = RetractForceData.T[retract_mask].T
 
-    mask = (np.abs(RetractForceData[1])<forcecrop)
-    newRetractForceData = RetractForceData.T[mask].T
+    else:
+        newApproachForceData = ApproachForceData
+        newRetractForceData  = RetractForceData
+
+    newApproachForceData = zeroForceCurves(newApproachForceData)
     newRetractForceData = zeroForceCurves(newRetractForceData)
 
 
@@ -631,7 +635,7 @@ def zeroForceCurves(ForceData):
         for FD in ForceData:
             try:
                 compliance = extractHardContactRegion(ForceData)
-                comp_len_cutoff = int(compliance.shape[1]/1.5)
+                comp_len_cutoff = int(compliance.shape[1]/2)
                 FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
             except IndexError:
                 return None
@@ -639,7 +643,7 @@ def zeroForceCurves(ForceData):
     else:
         try:
             compliance = extractHardContactRegion(ForceData)
-            comp_len_cutoff = int(compliance.shape[1]/1.5)
+            comp_len_cutoff = int(compliance.shape[1]/2)
             ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
         except IndexError:
             return None
