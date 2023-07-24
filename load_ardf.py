@@ -511,3 +511,24 @@ def ardf2hdf5(filename, filepath=None):
         metadict[name] = value
         
     return [[raw, defl, zsnsr], metadict] # PN added, IG modified
+
+def metadict_output(filename, filepath = None):
+    gc.enable()
+    ftoc, ttoc, fd = ARDF_load_file(filename)
+    for t in ttoc:
+        if t[0] == 'TOFF':
+            meta = ARDF_get_TEXT_from_TOFF(fd, t).decode('windows-1252')
+            metalist = meta.split('\r')
+            metalist = [i.encode('utf8') for i in metalist]
+    metadict = {}     
+    for item in metalist: # IG added
+            newitem = str(item)[2:-1]
+            split = newitem.split(':')
+            name = split[0]
+            value = ':'.join(split[1:])
+
+            metadict[name] = value        
+    return metadict
+    
+    
+    

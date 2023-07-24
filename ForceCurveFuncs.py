@@ -707,15 +707,15 @@ def resampleForceDataArray(ForceData):
     #         fcs_nan[i] = False
     
      
-    for idx, data in enumerate(ForceData):
-        isnan = np.any(np.isnan(data))
+    for idx, z in enumerate(ForceData[0]):
+        isnan = np.any(np.isnan(z))
+        
 
         #Since the ForceData is just a single nan, populating the force curve
         #so that the x values are the same, but all of the y values are 0.
         if not isnan: 
-            z = data
-            localMin = min(z)
-            localMax = max(z)
+            localMin = np.min(z)
+            localMax = np.max(z)
     
             if minZval > localMin:
                 minZval = localMin
