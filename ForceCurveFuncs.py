@@ -27,6 +27,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          number_of_curves_before_equil=0, 
                          override_invOLS=False, override_spring_constant=False,
                          flatten_retract_with_approach=False, drop_deviant_compReg=False,
+                         zero_at_constant_compliance=True,
                          debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
@@ -83,6 +84,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     drop_deviant_compReg (bool):
         Whether or not to drop curves with a constant compliance region more than 2 std away from the mean. Useful for 
         ensuring you only have high quality data.
+
+    zero_at_constant_compliance (bool):
+        Whether to zero the z position based on the location of the constant compliance region. This is generally a 
+        good idea for flat substrates, but a bad idea for textured substrates.
 
     debug (bool):
         If True, will display additional output usefull for debugging.
@@ -162,15 +167,11 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         original_spring_constant = spring_constant
 
 
-
     # Draw an axis to use for debugging
-
     debugplotter = plotdebug(debug=debug)
 
 
-
-
-    print (f"InvOLS: {invOLS} nm/V, Spring constant: {spring_constant}")
+    print (f"InvOLS: {invOLS} nm/V, Sfpring constant: {spring_constant}")
     if override_invOLS is False:
         print ("Note: invOLS will be calculated from the constant compliance region of each force curve. If this is not desired set override_invOLS=True.")
 
@@ -248,8 +249,9 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Zero force curves - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
-            debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
+            if zero_at_constant_compliance: # This might break some things down the line. I guess we'll see...
+                ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
+                debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed on first baseline correction'
 
@@ -263,7 +265,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             else:
                 Esen, Rsen = override_invOLS, override_invOLS
         elif data_sanitary is False:
-            data_sanitary = 'Failed on split and normalize'
+            data_sanitary = 'failed on zero force curves'
 
 
         if data_sanitary is True:
@@ -297,8 +299,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
 
         if data_sanitary is True:
-            if abs_forcecrop:
-                ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop)
+            ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop, zero=zero_at_constant_compliance)
         elif data_sanitary is False:
             data_sanitary = 'Failed on final baseline curvature correction'
 
@@ -461,19 +462,25 @@ def is_data_sanitary(data, data_sanitary=True):
         return data_sanitary
 
 
-def clean_forceData(ApproachForceData, RetractForceData, force_std_thresh=0.01, forcecrop=0.15):
+def clean_forceData(ApproachForceData, RetractForceData, forcecrop=False, zero=True):
     """
     'cleans up' approach and retract data. It does this by cropping out forces above a certain threshold
     and re-zeroing them.
 
     """
-    mask = (np.abs(ApproachForceData[1])<forcecrop)
-    newApproachForceData = ApproachForceData.T[mask].T
-    newApproachForceData = zeroForceCurves(newApproachForceData)
+    if forcecrop:
+        approach_mask = (np.abs(ApproachForceData[1])<forcecrop)
+        retract_mask  = (np.abs(RetractForceData[1])<forcecrop)
+        newApproachForceData = ApproachForceData.T[approach_mask].T
+        newRetractForceData = RetractForceData.T[retract_mask].T
 
-    mask = (np.abs(RetractForceData[1])<forcecrop)
-    newRetractForceData = RetractForceData.T[mask].T
-    newRetractForceData = zeroForceCurves(newRetractForceData)
+    else:
+        newApproachForceData = ApproachForceData
+        newRetractForceData  = RetractForceData
+
+    if zero:
+        newApproachForceData = zeroForceCurves(newApproachForceData)
+        newRetractForceData = zeroForceCurves(newRetractForceData)
 
 
     return newApproachForceData, newRetractForceData
@@ -631,7 +638,7 @@ def zeroForceCurves(ForceData):
         for FD in ForceData:
             try:
                 compliance = extractHardContactRegion(ForceData)
-                comp_len_cutoff = int(compliance.shape[1]/1.5)
+                comp_len_cutoff = int(compliance.shape[1]/2)
                 FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
             except IndexError:
                 return None
@@ -639,7 +646,7 @@ def zeroForceCurves(ForceData):
     else:
         try:
             compliance = extractHardContactRegion(ForceData)
-            comp_len_cutoff = int(compliance.shape[1]/1.5)
+            comp_len_cutoff = int(compliance.shape[1]/2)
             ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
         except IndexError:
             return None

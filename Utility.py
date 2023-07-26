@@ -1,6 +1,6 @@
 import numpy as np
 import glob
-
+import matplotlib.pyplot as plt
 
 def consecutive(data, stepsize=1):
     "Return groups of consecutive elements"
