@@ -6,15 +6,6 @@ Script used to process the raw data obtained from the Asylum AFM and convert it 
 a meniscus force map. 
 """
 
-"""
-Importing all of the necessary packages
-
-load_ardf: A separate set of functions written by Isaac Gresham to import the .ARDF files
-ForceCurveFuncs: Another set of functions written by Isaac Gresham to convert the
-                 imported .ARDF files into force-separation curves
-savgol_filter: a smoothing function that is necessary for the force curves (reduces impact of outliers)
-"""
-
 import os
 import sys
 import numpy as np
