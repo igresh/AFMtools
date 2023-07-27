@@ -17,6 +17,9 @@ from scipy.signal import savgol_filter
 from mpl_toolkits.mplot3d import Axes3D
 #from pylab import * 
 import scipy
+from scipy.optimize import curve_fit
+import math
+from matplotlib import pyplot
 #%%
 def data_load_in(file_name):
     """
@@ -233,20 +236,25 @@ def heatmap2d(arr, file_name):
     
     if np.sum(arr == bubble_height) == points_per_line**2:
         file_name += 'bubble_height_'
+        colour = 'viridis'
+        title = 'Bubble Height'
     elif np.sum(arr == oil_height) == points_per_line**2:
         file_name += 'oil_height_'
+        colour = 'inferno'
+        title = 'Oil Height'
     else:
         file_name += 'oil_height_'
     
     #Plotting the heatmap
     plt.figure()
-    plt.imshow(arr, cmap='viridis',extent=[0,image_size,0,image_size])
+    plt.imshow(arr, cmap=colour,extent=[0,image_size,0,image_size])
     cbar = plt.colorbar()
     cbar.set_label('Thickness ($\mu$m)', rotation = 270, labelpad = 20)
     plt.xlabel('x ($\mu$m)')
     plt.ylabel('y ($\mu$m)')
     plt.xticks(np.arange(0,image_size+1,image_size/4))
     plt.yticks(np.arange(0,image_size+1,image_size/4))
+    plt.title(title)
     if save_heatmap == True:
         save_name = file_name+'heatmap'+'.png'
         plt.savefig(newpath_map + '/' + save_name)
@@ -382,6 +390,7 @@ def side_profile(heights,row,horizontal = True):
     plt.rcParams['figure.dpi'] = 500
     plt.xlabel('x ($\mu$m)')
     plt.ylabel('Height ($\mu$m)') 
+    plt.legend(('Oil Height','Bubble Height'))
     
     if save_sideprofile == True:
         save_name = file_name + 'side_profile'+str(row)+'.png'
@@ -389,17 +398,17 @@ def side_profile(heights,row,horizontal = True):
     plt.show()
     
 #%%
-file_name = "Si77S5UB2"
+file_name = "Si77S5UB0024"
 is_MAC(initiator = True)
 metadict = load_ardf.metadict_output(file_name+'.ARDF')
 date_taken = metadict["LastSaveForce"][-7:-1]
 newpath = is_MAC(file_name,date_taken)
 
-save_forcemap = True
+save_forcemap = False
 save_heatmap = True
 save_sideprofile = False
 
-x_pos, y_pos = (8,3)
+x_pos, y_pos = (40,46)
 #%%
 raw, defl, metadict = data_load_in(file_name)
 ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
@@ -415,5 +424,29 @@ heatmap2d(oil_height,file_name)
 forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
 
 #%%
-side_profile([oil_height,bubble_height],6)
+side_profile([oil_height,bubble_height],30)
 
+
+#%%
+def droplet_profile(a,x,r):
+    return np.sqrt(np.abs(r**2 - (x-a)**2))
+
+x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
+y = bubble_height[47]*1e6
+
+
+popt, _ = curve_fit(droplet_profile,x,y)
+    
+pyplot.scatter(x,y)    
+
+
+a, b = popt
+# plot input vs output
+pyplot.scatter(x, y)
+# define a sequence of inputs between the smallest and largest known inputs
+x_line = np.arange(min(x), max(x), 1)
+# calculate the output for the range
+y_line = droplet_profile(x_line, a, b)
+# create a line plot for the mapping function
+pyplot.plot(x_line, y_line, '--', color='red')
+pyplot.show()
