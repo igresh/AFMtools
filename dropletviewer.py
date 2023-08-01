@@ -400,7 +400,7 @@ def side_profile(heights,row,horizontal = True):
     plt.show()
     
 #%%
-file_name = "SiS2bUWH06"
+file_name = "Si77S5UB1"
 is_MAC(initiator = True, mac = False)
 metadict = load_ardf.metadict_output(file_name+'.ARDF')
 date_taken = metadict["LastSaveForce"][-7:-1]
@@ -433,7 +433,7 @@ side_profile([oil_height,bubble_height],5)
 
 def droplet_CA(droplet_height):
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
-    y = droplet_height
+    y = droplet_height*1e6
     x = x[y>0.01]
     y = y[y>0.01]
     
@@ -452,7 +452,14 @@ def droplet_CA(droplet_height):
     
     return theta
     
-theta = droplet_CA(oil_height[5])    
+theta = np.zeros(points_per_line)
+
+for i in range(points_per_line):
+    theta[i] = droplet_CA(dropin_loc[i])
+
+#%%    
+theta = theta[theta < 50]
+  
     
 
 
