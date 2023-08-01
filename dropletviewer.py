@@ -20,6 +20,8 @@ import scipy
 from scipy.optimize import curve_fit
 import math
 from matplotlib import pyplot
+from circle_fit import taubinSVD
+from circle_fit import plot_data_circle
 #%%
 def data_load_in(file_name):
     """
@@ -344,7 +346,7 @@ def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
     if mac == True:
         newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/'
     else:
-        newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
+        newpath = r'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/' 
         
     os.chdir(newpath)
     if initiator == False:
@@ -398,17 +400,17 @@ def side_profile(heights,row,horizontal = True):
     plt.show()
     
 #%%
-file_name = "Si77S5UB0024"
-is_MAC(initiator = True)
+file_name = "SiS2bUWH06"
+is_MAC(initiator = True, mac = False)
 metadict = load_ardf.metadict_output(file_name+'.ARDF')
 date_taken = metadict["LastSaveForce"][-7:-1]
-newpath = is_MAC(file_name,date_taken)
+newpath = is_MAC(file_name,date_taken, False)
 
 save_forcemap = False
-save_heatmap = True
+save_heatmap = False
 save_sideprofile = False
 
-x_pos, y_pos = (40,46)
+x_pos, y_pos = (0,0)
 #%%
 raw, defl, metadict = data_load_in(file_name)
 ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
@@ -424,29 +426,42 @@ heatmap2d(oil_height,file_name)
 forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
 
 #%%
-side_profile([oil_height,bubble_height],30)
+side_profile([oil_height,bubble_height],5)
 
 
 #%%
-def droplet_profile(a,x,r):
-    return np.sqrt(np.abs(r**2 - (x-a)**2))
 
-x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
-y = bubble_height[47]*1e6
-
-
-popt, _ = curve_fit(droplet_profile,x,y)
+def droplet_CA(droplet_height):
+    x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
+    y = droplet_height
+    x = x[y>0.01]
+    y = y[y>0.01]
     
-pyplot.scatter(x,y)    
+    pos_coords = np.transpose(np.array((x,y)))
+    xc, yc, r, sigma = taubinSVD(pos_coords)
+    
+    plot_data_circle(pos_coords,xc,yc,r)
+    
+    x_circ = np.linspace(-xc,xc,10000)
+    y_circ = yc + np.sqrt(r**2-(x_circ-xc)**2)
+    y_circ = y_circ[~np.isnan(y_circ)]
+
+    h = max(y_circ)
+    
+    theta = np.rad2deg(np.arccos(1-h/r))   
+    
+    return theta
+    
+theta = droplet_CA(oil_height[5])    
+    
 
 
-a, b = popt
-# plot input vs output
-pyplot.scatter(x, y)
-# define a sequence of inputs between the smallest and largest known inputs
-x_line = np.arange(min(x), max(x), 1)
-# calculate the output for the range
-y_line = droplet_profile(x_line, a, b)
-# create a line plot for the mapping function
-pyplot.plot(x_line, y_line, '--', color='red')
-pyplot.show()
+
+
+
+
+
+
+
+
+
