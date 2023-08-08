@@ -10,7 +10,6 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-sys.path.append('/Users/seamuslilley/Documents/GitHub/AFMtools')
 import load_ardf  
 import ForceCurveFuncs
 from scipy.signal import savgol_filter 
@@ -55,7 +54,7 @@ def data_load_in(file_name):
     
     return raw, defl, metadict
 
-def data_convert(raw, defl, metadict):
+def data_convert(raw, defl, metadict, zero_constant_compliance=True):
     """
     Takes the raw (zsensor and deflection) data and converts it into a force-separation format.
     The resolution of the map for x and y must be the same length
@@ -79,8 +78,12 @@ def data_convert(raw, defl, metadict):
         The resolution of the force map.
 
     """
+    date_taken = metadict["LastSaveForce"][-7:-1]
+
     #Processing the data for both the extend and retract curves
-    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,failed_curve_handling = 'retain')
+    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,
+                                                                                            failed_curve_handling = 'retain',
+                                                                                            zero_at_constant_compliance=zero_constant_compliance)
     #Calculating the resolution of the plot 
     points_per_line = int(np.sqrt(len(ExtendsForce)))
     
@@ -95,7 +98,7 @@ def data_convert(raw, defl, metadict):
     
     print('This is a '+ str(points_per_line) + ' resolution forcemap, over a'
           + metadict["ScanSize"] + ' area. This corresponds to ' + str(round(float(metadict["ScanSize"])/points_per_line,9)*1e9)
-            + ' nm separation between pixels. The map was taken on '+date_taken)
+            + ' nm separation between pixels. The map was taken on ' + date_taken)
     
     
     return(ExtendsForce,points_per_line)
@@ -128,7 +131,8 @@ def data_process(ExtendsForce,points_per_line):
     bubble_height = np.zeros((points_per_line,points_per_line))
     oil_height = np.zeros((points_per_line,points_per_line))
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
-    
+    topog = np.zeros((points_per_line,points_per_line))
+
     for i in range(points_per_line):
         for j in range(points_per_line):
             
@@ -136,10 +140,9 @@ def data_process(ExtendsForce,points_per_line):
             x,y = ExtendsForce[i][j]
             x = x[~np.isnan(y)]
             y = y[~np.isnan(y)]
-            #y = y[x>0]
-            #x = x[x>0]
             y = savgol_filter(y, 51, 2)
-            
+            topog[i][j] = np.min(x)
+
             #Differentiating the data and smoothing
             dy = np.diff(y)
             dy = savgol_filter(dy, 51, 2)
@@ -207,9 +210,9 @@ def data_process(ExtendsForce,points_per_line):
                 
 
             
-    return(dropin_loc,bubble_height, oil_height)
+    return(dropin_loc,bubble_height, oil_height, topog)
 
-def heatmap2d(arr, file_name):
+def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=False):
     """
     Plots the height array as a heatmap. Option to save the plot as well.
     
@@ -231,12 +234,8 @@ def heatmap2d(arr, file_name):
         
     image_size = int(float(metadict["ScanSize"])/1e-6)
     
-    if np.sum(arr == bubble_height) == points_per_line**2:
-        file_name += 'bubble_height_'
-    elif np.sum(arr == oil_height) == points_per_line**2:
-        file_name += 'oil_height_'
-    else:
-        file_name += 'oil_height_'
+    file_name += postnomial
+
     
     #Plotting the heatmap
     plt.figure()
@@ -388,32 +387,4 @@ def side_profile(heights,row,horizontal = True):
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
-#%%
-file_name = "Si77S5UB2"
-is_MAC(initiator = True)
-metadict = load_ardf.metadict_output(file_name+'.ARDF')
-date_taken = metadict["LastSaveForce"][-7:-1]
-newpath = is_MAC(file_name,date_taken)
-
-save_forcemap = True
-save_heatmap = True
-save_sideprofile = False
-
-x_pos, y_pos = (8,3)
-#%%
-raw, defl, metadict = data_load_in(file_name)
-ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
-
-#%%
-dropin_loc, bubble_height, oil_height = data_process(ExtendsForce, points_per_line)
-
-#%%
-heatmap2d(bubble_height,file_name)
-heatmap2d(oil_height,file_name)
-
-#%%
-forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
-
-#%%
-side_profile([oil_height,bubble_height],6)
 
