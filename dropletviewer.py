@@ -81,7 +81,7 @@ def data_convert(raw, defl, metadict, zero_constant_compliance=True):
     date_taken = metadict["LastSaveForce"][-7:-1]
 
     #Processing the data for both the extend and retract curves
-    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,
+    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl, metadict,
                                                                                             failed_curve_handling = 'retain',
                                                                                             zero_at_constant_compliance=zero_constant_compliance)
     #Calculating the resolution of the plot 
@@ -141,25 +141,20 @@ def data_process(ExtendsForce,points_per_line):
             x = x[~np.isnan(y)]
             y = y[~np.isnan(y)]
             y = savgol_filter(y, 51, 2)
-            topog[i][j] = np.min(x)
+            
+            # Set the substrate height as the minimum x position.
+            topog[i][j] = np.min(y)
 
             #Differentiating the data and smoothing
-            dy = np.diff(y)
-            dy = savgol_filter(dy, 51, 2)
-
-            
-            dx = x[range(len(dy))]
-            
-            #Taking the second derivative and smoothing that
-            d2y = np.diff(dy)
-            d2y = savgol_filter(d2y,81,2)
+            dy = savgol_filter(y, 51, 2, deriv=1)
+            #d2y = savgol_filter(y,81,2, deriv=2)
             
             #Ensuring that the script identifies all spikes in gradient,
             #either positive or negative
             dy_abs = abs(dy)
             
             #Idenitifying the peaks in the (abs) first derivative
-            peaks = scipy.signal.find_peaks(dy_abs,1e-10, distance = 50, prominence = 1e-10)
+            peaks = scipy.signal.find_peaks(dy_abs, 1e-10, distance=50, prominence=1e-9)
             peaks = peaks[0]
             if np.argmin(dy) == 0:
                 peaks = np.insert(peaks,0,np.argmin(dy))
@@ -172,37 +167,39 @@ def data_process(ExtendsForce,points_per_line):
             else:
                 for k in range(len(peaks)-1):
                     #Selecting the derivative values between two peaks
-                    peak_diff_range = dx[peaks[k]:peaks[k+1]]
+                    # peak_diff_range = x[peaks[k]:peaks[k+1]]
                     peak_range = y[peaks[k]:peaks[k+1]]
                     #Calculating how much of the values are positive
                     derivative_percent = sum(dy[peaks[k]:peaks[k+1]] > 0)/(peaks[k+1]-peaks[k])
                     
                     #Different cases considered for deciding if oil or gas and
                     #assigning it a generic placeholder
+                    Oil = 1
+                    Gas = 2
                     if derivative_percent > 0.7:
                         #print('Oil')
-                        region_type[peaks[k]:peaks[k+1]] = 1
+                        region_type[peaks[k]:peaks[k+1]] = Oil
                     elif derivative_percent < 0.3:
                         #print('Gas')
-                        region_type[peaks[k]:peaks[k+1]] = 2
+                        region_type[peaks[k]:peaks[k+1]] = Gas
                     elif abs(np.min(peak_range)) > 0.1e-8:
                         #print('Gas')
-                        region_type[peaks[k]:peaks[k+1]] = 1
+                        region_type[peaks[k]:peaks[k+1]] = Gas
                     else:
                         #print('Oil')
-                        region_type[peaks[k]:peaks[k+1]] = 2
+                        region_type[peaks[k]:peaks[k+1]] = Oil
 
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
-            if sum(region_type == 2) != 0:
-                bubble_loc = np.where(region_type == 2)
+            if sum(region_type == Gas) != 0:
+                bubble_loc = np.where(region_type == Gas)
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
 
-            if sum(region_type == 1) != 0:
-                oil_loc = np.where(region_type == 1)
+            if sum(region_type == Oil) != 0:
+                oil_loc = np.where(region_type == Oil)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
@@ -234,12 +231,13 @@ def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatma
         
     image_size = int(float(metadict["ScanSize"])/1e-6)
     
-    file_name += postnomial
+    file_name += '_' + postnomial
 
     
     #Plotting the heatmap
     plt.figure()
-    plt.imshow(arr, cmap='viridis',extent=[0,image_size,0,image_size])
+    plt.suptitle(postnomial)
+    plt.imshow(arr, cmap='magma',extent=[0,image_size,0,image_size])
     cbar = plt.colorbar()
     cbar.set_label('Thickness ($\mu$m)', rotation = 270, labelpad = 20)
     plt.xlabel('x ($\mu$m)')
@@ -252,7 +250,7 @@ def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatma
     plt.rcParams['figure.dpi'] = 1000
     plt.show()
     
-def forcemapplot(data,coords,f_name = ''):
+def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height, topog, newpath='./', postnomial='', save_forcemap=False):
     """
     Plots a single force curve. Helps with debugging, as you only consider one
     force curve at a time. It also converts both of the parameters to nN and um. 
@@ -286,6 +284,7 @@ def forcemapplot(data,coords,f_name = ''):
     jump_in = dropin_loc[coord_x,coord_y]/1e-6
     bubble_h = bubble_height[coord_x,coord_y]/1e-6
     oil_h  = oil_height[coord_x,coord_y]/1e-6
+    topog = topog[coord_x,coord_y]/1e-6
     
 
     #print(height)
@@ -313,37 +312,8 @@ def forcemapplot(data,coords,f_name = ''):
         save_name = file_name + coords + 'forcecurve'+'.png'
         plt.savefig(newpath_forcecurve + '/' + save_name)
     plt.show()
-    
-def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
-    """
-    The specific folder path will change depending on if I (Seamus) am working
-    on a Mac or PC. This helps to switch between the two. Not necessary if only
-    working from one device. Update the path for different users.
 
-    Parameters
-    ----------
-    mac : boolean, optional
-        Are you (Seamus) working on your mac? The default is True.
-
-    Returns
-    -------
-    newpath : str
-        Defines the path that specifies what folder to work in. Will change
-        depending on if I (Seamus) am working on a Mac or PC.
-
-    """
-    if mac == True:
-        newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/'
-    else:
-        newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
-        
-    os.chdir(newpath)
-    if initiator == False:
-        newpath = newpath + date_taken + '/' +file_name
-    return newpath
-    
-
-def side_profile(heights,row,horizontal = True):
+def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./', postnomial='', horizontal=True, save_sideprofile=False):
     """
     Plots the side profile of the data for a specified row (with the option
                                                             to instead select
@@ -387,4 +357,30 @@ def side_profile(heights,row,horizontal = True):
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
+def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
+    """
+    The specific folder path will change depending on if I (Seamus) am working
+    on a Mac or PC. This helps to switch between the two. Not necessary if only
+    working from one device. Update the path for different users.
 
+    Parameters
+    ----------
+    mac : boolean, optional
+        Are you (Seamus) working on your mac? The default is True.
+
+    Returns
+    -------
+    newpath : str
+        Defines the path that specifies what folder to work in. Will change
+        depending on if I (Seamus) am working on a Mac or PC.
+
+    """
+    if mac == True:
+        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Air\230721 Samples'
+    else:
+        newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
+        
+    os.chdir(newpath)
+    if initiator == False:
+        newpath = newpath + date_taken + '/' +file_name
+    return newpath
