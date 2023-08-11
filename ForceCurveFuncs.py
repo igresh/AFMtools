@@ -518,6 +518,7 @@ def extractHardContactRegion(ForceData, SplitFirst=False, quantile=0.90):
     will return compliance data from both curves.
 
     """
+    ForceData = np.array(ForceData)
 
     if SplitFirst:
         Extend, Retract = splitExtendRetract(ForceData)
@@ -745,6 +746,7 @@ def resampleForceDataArray(ForceData):
         if isnan:
             newForceData.append([newZ, np.zeros_like(newZ)])
         else:
-            newForceData.append([newZ, np.interp(newZ, data[0], data[1], right=np.nan)])
+            newForceData.append([newZ, np.interp(newZ, data[0], data[1],
+                                 right=np.nan, left=np.nan)])
 
     return np.array(newForceData)

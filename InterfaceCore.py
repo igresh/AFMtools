@@ -132,6 +132,9 @@ def data_process(ExtendsForce,points_per_line):
     oil_height = np.zeros((points_per_line,points_per_line))
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
     topog = np.zeros((points_per_line,points_per_line))
+    
+    Oil = 1
+    Gas = 2
 
     for i in range(points_per_line):
         for j in range(points_per_line):
@@ -142,12 +145,15 @@ def data_process(ExtendsForce,points_per_line):
             y = y[~np.isnan(y)]
             y = savgol_filter(y, 51, 2)
             
-            # Set the substrate height as the minimum x position.
-            topog[i][j] = np.min(y)
+            hard_contact = np.min(x)
+            topog[i][j] = hard_contact
+            x = x - hard_contact
+            
+            # Set the substrate height as the minimum y position.
+           # topog[i][j] = np.min(y)
 
             #Differentiating the data and smoothing
             dy = savgol_filter(y, 51, 2, deriv=1)
-            #d2y = savgol_filter(y,81,2, deriv=2)
             
             #Ensuring that the script identifies all spikes in gradient,
             #either positive or negative
@@ -172,23 +178,43 @@ def data_process(ExtendsForce,points_per_line):
                     #Calculating how much of the values are positive
                     derivative_percent = sum(dy[peaks[k]:peaks[k+1]] > 0)/(peaks[k+1]-peaks[k])
                     
+                    #Derivative_percent function looks at the derivative between adjacent peaks 
+                    #and determines whether the slope is positive or not
+                    #By summing this increments over a region, we determine if this has an oil or bubble signature
+                    
                     #Different cases considered for deciding if oil or gas and
                     #assigning it a generic placeholder
-                    Oil = 1
-                    Gas = 2
-                    if derivative_percent > 0.7:
-                        #print('Oil')
-                        region_type[peaks[k]:peaks[k+1]] = Oil
-                    elif derivative_percent < 0.3:
-                        #print('Gas')
+    
+                        
+                    # if derivative_percent == 1:
+                    #     region_type[peaks[k]:peaks[k+1]] = Oil
+                    
+                    # elif abs(np.min(peak_range)) > np.min(y):
+                    #     region_type[peaks[k]:peaks[k+1]] = Oil     
+                    
+                    if derivative_percent < 0.6:
                         region_type[peaks[k]:peaks[k+1]] = Gas
-                    elif abs(np.min(peak_range)) > 0.1e-8:
-                        #print('Gas')
-                        region_type[peaks[k]:peaks[k+1]] = Gas
+                    
                     else:
-                        #print('Oil')
                         region_type[peaks[k]:peaks[k+1]] = Oil
-
+                        
+                    #Introduce a force threshold for taking into consideration positive gradients near the hard contact region
+                    
+                    #Check to make sure plots are in units of Force vs separation
+                    
+                    # if derivative_percent > 0.7:
+                    #     #print('Oil')
+                    #     region_type[peaks[k]:peaks[k+1]] = Oil
+                    # elif derivative_percent < 0.3:
+                    #     #print('Gas')
+                    #     region_type[peaks[k]:peaks[k+1]] = Gas
+                    # elif abs(np.min(peak_range)) > 0.1e-8:
+                    #     #print('Gas')
+                    #     region_type[peaks[k]:peaks[k+1]] = Oil
+                    # else:
+                    #     #print('Oil')
+                    #     region_type[peaks[k]:peaks[k+1]] = Gas
+    
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
@@ -197,16 +223,16 @@ def data_process(ExtendsForce,points_per_line):
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
-
+    
             if sum(region_type == Oil) != 0:
                 oil_loc = np.where(region_type == Oil)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
-
+    
+                    
+    
                 
-
-            
     return(dropin_loc,bubble_height, oil_height, topog)
 
 def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=False):
@@ -301,8 +327,8 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
     #plt.ylim((min(y)-10,150))
     plt.xticks(fontsize = 12)
     plt.yticks(fontsize = 12)
-    plt.xlim((0,1.5*np.max(oil_height)*1e6))
-    #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
+    #plt.xlim((0,1.5*np.max(oil_height)*1e6))
+    plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
     plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
     plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
     plt.legend()
@@ -346,11 +372,12 @@ def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./
         bubble_y = heights[1][row,:]/1e-6
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
     plt.figure()
-    plt.plot(x,oil_y,'x-',c='tab:blue')
-    plt.plot(x,bubble_y,'x-', c = 'tab:red')
+    plt.plot(x,oil_y,'x-',c='tab:blue', label = 'Oil Height')
+    plt.plot(x,bubble_y,'x-', c = 'tab:red', label = 'Bubble Height')
     plt.rcParams['figure.dpi'] = 500
     plt.xlabel('x ($\mu$m)')
-    plt.ylabel('Height ($\mu$m)') 
+    plt.ylabel('Height ($\mu$m)')
+    plt.legend()
     
     if save_sideprofile == True:
         save_name = file_name + 'side_profile'+str(row)+'.png'
