@@ -257,6 +257,8 @@ def data_process(ExtendsForce,points_per_line, debug=False):
                 
     return(dropin_loc,bubble_height, oil_height, topog)
 
+def flatten_planefit (topog_map, verbose=False):
+
 def sanitize_FCdata (FCdata):
     """
     removes NaNs and smooths 
