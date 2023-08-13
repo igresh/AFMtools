@@ -7,12 +7,11 @@ a meniscus force map.
 """
 
 import os
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import load_ardf  
 import ForceCurveFuncs
-from Utility import consecutive, plotdebug
+from Utility import plotdebug
 from scipy.signal import savgol_filter 
 #from pylab import * 
 import scipy
@@ -164,7 +163,7 @@ def data_process(ExtendsForce,points_per_line, debug=False):
         for j in range(points_per_line):
             
             # Debugging stuff:
-            if debug==True:
+            if debug==True and debugplotter.plotted == True:
                 debugplotter.show_plot()
                 userinput = input("Do you want to continue?")
                 if userinput.lower() != 'y':
@@ -186,23 +185,28 @@ def data_process(ExtendsForce,points_per_line, debug=False):
             hard_contact = np.min(x)
             topog[i][j] = hard_contact
             x = x - hard_contact
-            
-            # Set the substrate height as the minimum y position.
-           # topog[i][j] = np.min(y)
+    
 
             #Differentiating the data and smoothing
             dy = savgol_filter(y, deriv=1, **calculate_savgol_params(x))
-            
+            # units in Newtons oer meter (I think)
+    
             #Ensuring that the script identifies all spikes in gradient,
             #either positive or negative
             dy_abs = abs(dy)
             
             #Idenitifying the peaks in the (abs) first derivative
-            peaks = scipy.signal.find_peaks(dy_abs, height=0.2, distance=len(x)/50)
-            peaks = peaks[0]
+            peaks, ___ = scipy.signal.find_peaks(dy_abs,
+                                                 height=0.2, # n/m
+                                                 distance=len(x)/50)
 
-            if np.argmin(dy) == 0:
+            if np.argmin(dy) == 0: #IG: Not sure what this is doing
                 peaks = np.insert(peaks,0,np.argmin(dy))
+                
+            # Make sure there is a 'peak' at the constant compliance region.
+            if peaks[0] < 5:
+                peaks = np.insert(peaks,0,0)
+
             region_type = np.zeros_like(y)
 
             if len(peaks) == 0:
@@ -248,7 +252,6 @@ def data_process(ExtendsForce,points_per_line, debug=False):
                 
             debugplotter.plot( curves=[[x,y]], labels=['Fresh'], clear=False, ax=1, color='k')
             debugplotter.plot( curves=[[x, dy_abs]], labels=['abs dy'], clear=False, ax=2, color='r')
-
             debugplotter.scatter([[x, region_type], [x[peaks], np.zeros_like(peaks)]], labels=['region type', 'peaks'], ax=2)
 
     
@@ -258,6 +261,30 @@ def data_process(ExtendsForce,points_per_line, debug=False):
     return(dropin_loc,bubble_height, oil_height, topog)
 
 def flatten_planefit (topog_map, verbose=False):
+    # logic from https://stackoverflow.com/questions/35005386/fitting-a-plane-to-a-2d-array
+
+    
+    m = topog_map.shape[0]
+    n = topog_map.shape[1]
+    s = m*n
+
+    X1, X2 = np.mgrid[:m, :n]
+
+    X = np.hstack((np.reshape(X1, (s, 1)) , np.reshape(X2, (s, 1)) ) )
+    X = np.hstack((np.ones((s, 1)) , X ))
+
+    YY = np.reshape(topog_map, (m*n, 1))
+
+    theta = np.dot(np.dot( np.linalg.pinv(np.dot(X.transpose(), X)), X.transpose()), YY)
+
+    plane = np.reshape(np.dot(X, theta), (m, n));
+
+    flat_topog = topog_map - plane
+    
+    if verbose:
+        return flat_topog, plane
+    else:
+        return flat_topog
 
 def sanitize_FCdata (FCdata):
     """
