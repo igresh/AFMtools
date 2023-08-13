@@ -35,10 +35,13 @@ class plotdebug (object):
         if self.debug:
             self.fig, self.ax = plt.subplots()
             self.axt = self.ax.twinx()
+            
+        self.plotted = False
 
     def plot(self, curves=[None], labels=[None], clear=False, ax=1, **kwrds):
 
         if self.debug == True:
+            self.plotted = True
             if ax==1:
                 ax = self.ax
             else:
@@ -46,6 +49,7 @@ class plotdebug (object):
 
             if clear:
                 ax.cla()
+        
             for c, l in zip(curves, labels):
                 try:
                     ax.plot(c[0], c[1], label=l, **kwrds)
@@ -59,6 +63,8 @@ class plotdebug (object):
     def scatter(self, curves=[None], labels=[None], clear=False, ax=1, **kwrds):
     
         if self.debug == True:
+            self.plotted = True
+
             if ax==1:
                 ax = self.ax
             else:
@@ -82,11 +88,11 @@ class plotdebug (object):
         self.ax.cla()
 
 
-    def make_legend(self):
+    def make_legend(self, loc=None):
         handles1, labels1 = self.ax.get_legend_handles_labels()
         handles2, labels2 = self.axt.get_legend_handles_labels()
         handles = handles1 + handles2
         labels = labels1 + labels2
 
         by_label = dict(zip(labels, handles))
-        self.ax.legend(by_label.values(), by_label.keys())
+        self.ax.legend(by_label.values(), by_label.keys(), loc=loc)
