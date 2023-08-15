@@ -38,7 +38,7 @@ class plotdebug (object):
             
         self.plotted = False
 
-    def plot(self, curves=[None], labels=[None], clear=False, ax=1, **kwrds):
+    def plot(self, curves=[None], labels=[None], clear=False, ax=1, ax_ylabel=None, ax_xlabel=None, **kwrds):
 
         if self.debug == True:
             self.plotted = True
@@ -54,6 +54,8 @@ class plotdebug (object):
                 try:
                     ax.plot(c[0], c[1], label=l, **kwrds)
                     self.make_legend()
+                    ax.set(ylabel=ax_ylabel, xlabel=ax_xlabel)
+
                 except:
                     print(f"plotdebug could not plot curve with label: {l}, len: {len(c[0])}")
 

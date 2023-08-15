@@ -189,7 +189,7 @@ def data_process(ExtendsForce,points_per_line, debug=False):
 
             #Differentiating the data and smoothing
             dy = savgol_filter(y, deriv=1, **calculate_savgol_params(x))
-            # units in Newtons oer meter (I think)
+            # units in Newtons per meter (I think)
     
             #Ensuring that the script identifies all spikes in gradient,
             #either positive or negative
@@ -200,19 +200,20 @@ def data_process(ExtendsForce,points_per_line, debug=False):
                                                  height=0.2, # n/m
                                                  distance=len(x)/50)
 
-            if np.argmin(dy) == 0: #IG: Not sure what this is doing
-                peaks = np.insert(peaks,0,np.argmin(dy))
+            # if np.argmin(dy) == 0: #IG: Not sure what this is doing
+            #     peaks = np.insert(peaks,0,np.argmin(dy))
                 
-            # Make sure there is a 'peak' at the constant compliance region.
-            if peaks[0] < 5:
-                peaks = np.insert(peaks,0,0)
-
             region_type = np.zeros_like(y)
 
             if len(peaks) == 0:
                 dropin_loc[i][j] = 0
 
             else:
+                if peaks[0] > 5:
+                    # Make sure there is a 'peak' at the constant compliance region.
+                    peaks = np.insert(peaks,0,0)
+                
+            
                 for k in range(len(peaks)-1):
                     #Selecting the derivative values between two peaks
                     # peak_diff_range = x[peaks[k]:peaks[k+1]]
@@ -220,9 +221,10 @@ def data_process(ExtendsForce,points_per_line, debug=False):
                     #Calculating how much of the values are positive
                     derivative_percent = np.average(dy[peaks[k]:peaks[k+1]])
                     force_average = np.average(y[peaks[k]:peaks[k+1]])
+                    
                     #Derivative_percent function looks at the derivative between adjacent peaks 
                     #and determines whether the slope is positive or not
-                    #By summing this increments over a region, we determine if this has an oil or bubble signature
+                    #By summing these increments over a region, we determine if this has an oil or bubble signature
                     
                     #Different cases considered for deciding if oil or gas and
                     #assigning it a generic placeholder
@@ -250,8 +252,8 @@ def data_process(ExtendsForce,points_per_line, debug=False):
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
                 
-            debugplotter.plot( curves=[[x,y]], labels=['Fresh'], clear=False, ax=1, color='k')
-            debugplotter.plot( curves=[[x, dy_abs]], labels=['abs dy'], clear=False, ax=2, color='r')
+            debugplotter.plot( curves=[[x,y]], labels=['Fresh'], clear=False, ax=1, color='k', ax_xlabel='Separation (m)')
+            debugplotter.plot( curves=[[x, dy_abs]], labels=['abs dy'], clear=False, ax=2, color='r', ax_ylabel='Region Type')
             debugplotter.scatter([[x, region_type], [x[peaks], np.zeros_like(peaks)]], labels=['region type', 'peaks'], ax=2)
 
     
@@ -317,7 +319,7 @@ def calculate_savgol_params(x_axis, polyorder=2):
             'polyorder':polyorder,
             'delta':spacing}
 
-def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=False):
+def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=True):
     """
     Plots the height array as a heatmap. Option to save the plot as well.
     
@@ -358,7 +360,7 @@ def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatma
     plt.rcParams['figure.dpi'] = 1000
     plt.show()
     
-def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height, topog, newpath='./', postnomial='', save_forcemap=False):
+def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height, topog, newpath='./', postnomial='', save_forcemap=True):
     """
     Plots a single force curve. Helps with debugging, as you only consider one
     force curve at a time. It also converts both of the parameters to nN and um. 
@@ -389,7 +391,7 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
     
     coord_x = int(coords[0])
     coord_y = int(coords[1])
-    jump_in = dropin_loc[coord_x,coord_y]/1e-6
+    #jump_in = dropin_loc[coord_x,coord_y]/1e-6
     bubble_h = bubble_height[coord_x,coord_y]/1e-6
     oil_h  = oil_height[coord_x,coord_y]/1e-6
     topog = topog[coord_x,coord_y]/1e-6
@@ -410,7 +412,7 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
     plt.xticks(fontsize = 12)
     plt.yticks(fontsize = 12)
     #plt.xlim((0,1.5*np.max(oil_height)*1e6))
-    plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
+    #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
     plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
     plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
     plt.legend()
@@ -421,7 +423,8 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
         plt.savefig(newpath_forcecurve + '/' + save_name)
     plt.show()
 
-def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./', postnomial='', horizontal=True, save_sideprofile=False):
+
+def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./', postnomial='', horizontal=True, save_sideprofile=True):
     """
     Plots the side profile of the data for a specified row (with the option
                                                             to instead select
@@ -466,7 +469,7 @@ def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
-def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
+def is_MAC(file_name = '',date_taken = '',mac = True, initiator = False):
     """
     The specific folder path will change depending on if I (Seamus) am working
     on a Mac or PC. This helps to switch between the two. Not necessary if only

@@ -27,7 +27,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          number_of_curves_before_equil=0, 
                          override_invOLS=False, override_spring_constant=False,
                          flatten_retract_with_approach=False, drop_deviant_compReg=False,
-                         zero_at_constant_compliance=True,
+                         zero_at_constant_compliance=False,
                          debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
