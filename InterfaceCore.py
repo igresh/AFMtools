@@ -203,16 +203,17 @@ def data_process(ExtendsForce,points_per_line, debug=False):
             if np.argmin(dy) == 0: #IG: Not sure what this is doing
                 peaks = np.insert(peaks,0,np.argmin(dy))
                 
-            # Make sure there is a 'peak' at the constant compliance region.
-            if peaks[0] < 5:
-                peaks = np.insert(peaks,0,0)
-
             region_type = np.zeros_like(y)
 
             if len(peaks) == 0:
                 dropin_loc[i][j] = 0
 
             else:
+                # Make sure there is a 'peak' at the constant compliance region.
+                if peaks[0] > 5:
+                    peaks = np.insert(peaks,0,0)
+
+
                 for k in range(len(peaks)-1):
                     #Selecting the derivative values between two peaks
                     # peak_diff_range = x[peaks[k]:peaks[k+1]]
