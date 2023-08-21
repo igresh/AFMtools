@@ -677,7 +677,7 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
     if sensitivity==None:
         sensitivity = calculateSensitivity(ForceData)
 
-    if ForceData==None:
+    if not np.isany(ForceData):
         return None
 
     ForceData = copy.deepcopy(ForceData)
