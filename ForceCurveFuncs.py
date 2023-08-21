@@ -197,12 +197,19 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         Esen = np.nan
         Rsen = np.nan
 
-        if debug:
+        if debug==True:
             debugplotter.show_plot()
             userinput = input("Do you want to continue?")
             if userinput.lower() != 'y':
                 break
             debugplotter.clear_plot()
+
+        elif type(debug)==int:
+            if  idx == debug:
+                print (f'debugging {idx}')
+                debugplotter.debug = True
+            else:
+                debugplotter.debug = False
 
 
         data_sanitary = is_data_sanitary([z, d], data_sanitary=data_sanitary)
