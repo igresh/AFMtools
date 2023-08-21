@@ -279,7 +279,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             average_sens = (Esen + Rsen)/2
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
-            debugplotter.plot( curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed to find constant compliance sensitivity'
 
@@ -287,6 +286,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Correct remaining baseline curvature   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
         if data_sanitary is True:
+            debugplotter.plot( curves=[ExtendForce, RetractForce], labels=['Extend force', 'Retract force'], clear=False)
             if flatten_retract_with_approach is True:
                 ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
         elif data_sanitary is False:
@@ -677,8 +677,8 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
     if sensitivity==None:
         sensitivity = calculateSensitivity(ForceData)
 
-    if not np.isany(ForceData):
-        return None
+    if not np.any(ForceData):
+        return np.nan
 
     ForceData = copy.deepcopy(ForceData)
 
