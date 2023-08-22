@@ -43,7 +43,7 @@ class plotdebug (object):
                     self.ax.plot(c[0], c[1], label=l, **kwrds)
                     self.make_legend()
                 except:
-                    print(f"plotdebug could not plot curve with label: {l}, len: {len(c[0])}")
+                    print(f"plotdebug could not plot curve with label: {l}, c: {c}")
 
         return
 
