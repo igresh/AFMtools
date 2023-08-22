@@ -197,19 +197,20 @@ def data_process(ExtendsForce,points_per_line):
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
-            if sum(region_type == 2) != 0:
-                bubble_loc = np.where(region_type == 2)
-                if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
-                    x[bubble_loc[0][-1]] = 0
-                bubble_height[i][j] = x[bubble_loc[0][-1]]
-
+            
             if sum(region_type == 1) != 0:
                 oil_loc = np.where(region_type == 1)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
-                oil_height[i][j] = x[oil_loc[0][-1]]
-
-                
+                oil_height[i][j] = x[oil_loc[0][-1]]            
+            
+            if sum(region_type == 2) != 0:
+                bubble_loc = np.where(region_type == 2)
+                if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
+                    x[bubble_loc[0][-1]] = 0
+                if x[bubble_loc[0][-1]] < x[oil_loc[0][-1]]: #For no oil above bubble
+                    x[bubble_loc[0][-1]] = 0
+                bubble_height[i][j] = x[bubble_loc[0][-1]]
 
             
     return(dropin_loc,bubble_height, oil_height)
@@ -400,7 +401,7 @@ def side_profile(heights,row,horizontal = True):
     plt.show()
     
 #%%
-file_name = "Si77S5UB1"
+file_name = "Si77S6BA11"
 is_MAC(initiator = True, mac = False)
 metadict = load_ardf.metadict_output(file_name+'.ARDF')
 date_taken = metadict["LastSaveForce"][-7:-1]
@@ -410,7 +411,7 @@ save_forcemap = False
 save_heatmap = False
 save_sideprofile = False
 
-x_pos, y_pos = (0,0)
+x_pos, y_pos = (11,3)
 #%%
 raw, defl, metadict = data_load_in(file_name)
 ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
@@ -440,7 +441,7 @@ def droplet_CA(droplet_height):
     pos_coords = np.transpose(np.array((x,y)))
     xc, yc, r, sigma = taubinSVD(pos_coords)
     
-    plot_data_circle(pos_coords,xc,yc,r)
+    #plot_data_circle(pos_coords,xc,yc,r)
     
     x_circ = np.linspace(-xc,xc,10000)
     y_circ = yc + np.sqrt(r**2-(x_circ-xc)**2)
