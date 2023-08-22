@@ -81,9 +81,10 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         Whether or not to subtract the approach curve from the retract curve to flatten it. Useful for single-molecule
         force spectroscopy (note: this isn't how this works at the moment)
 
-    drop_deviant_compReg (bool):
+    drop_deviant_compReg (bool or float):
         Whether or not to drop curves with a constant compliance region more than 2 std away from the mean. Useful for 
-        ensuring you only have high quality data.
+        ensuring you only have high quality data. If a float is passed instead of a bool, rejects values that deviate from
+        the mean (or given involS, if override_involS is not False) by the value passed (as a percentage value of the InvolS. 
 
     zero_at_constant_compliance (bool):
         Whether to zero the z position based on the location of the constant compliance region. This is generally a 
@@ -267,10 +268,12 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         # Calculate sensitivity - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            if override_invOLS is False:
-                Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
-            else:
-                Esen, Rsen = override_invOLS, override_invOLS
+            # if override_invOLS is False:
+            #     Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+            # else:
+            #     Esen, Rsen = override_invOLS, override_invOLS
+            Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+
         elif data_sanitary is False:
             data_sanitary = 'failed on zero force curves'
 
@@ -283,7 +286,11 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
         # Convert to force vs. separation  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         if data_sanitary is True:
-            average_sens = (Esen + Rsen)/2
+            if override_invOLS is False:
+                average_sens = (Esen + Rsen)/2
+            else:
+                average_sens = override_invOLS
+
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
         elif data_sanitary is False:
@@ -354,17 +361,24 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                     print('Data discarded')
 
     if len(Esens) > 1:
-        AvExSens = np.mean(Esens)
+        AvExSens = stats.trim_mean(Esens, 0.1)
         StdExSens = np.std(Esens)
-        AvRetSens = np.mean(Rsens)
+        AvRetSens = stats.trim_mean(Rsens, 0.1)
         StdRetSens = np.std(Esens)
 
-        if drop_deviant_compReg:
-        # Get rid of data that deviates from the mean sensitivity
-            ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
-            RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
-            SensMask = np.logical_and(ExSensMask, RetSensMask)
-
+        if drop_deviant_compReg is not False:
+            if drop_deviant_compReg is True:
+            # Get rid of data that deviates from the mean sensitivity
+                ExSensMask = np.logical_and(Esens > AvExSens - 2*StdExSens, Esens < AvExSens + 2*StdExSens)
+                RetSensMask = np.logical_and(Rsens > AvRetSens - 2*StdRetSens, Rsens < AvRetSens + 2*StdRetSens)
+                SensMask = np.logical_and(ExSensMask, RetSensMask)
+            else:
+            # drop_deviant_compReg should be a float
+                AbsoluteExDev  = AvExSens*(drop_deviant_compReg/100)
+                AbsoluteRetDev = AvRetSens*(drop_deviant_compReg/100)
+                ExSensMask = np.logical_and(Esens > AvExSens - AbsoluteExDev, Esens < AvExSens + AbsoluteExDev)
+                RetSensMask = np.logical_and(Rsens > AvRetSens - AbsoluteRetDev, Rsens < AvRetSens + AbsoluteRetDev)
+                SensMask = np.logical_and(ExSensMask, RetSensMask)
 
             number_excluded_by_sens = np.sum(np.logical_not(SensMask))
             if number_excluded_by_sens != 0:
@@ -462,8 +476,8 @@ def is_data_sanitary(data, data_sanitary=True):
                 return False
             elif np.ndim(datum) == 2 and datum.shape[1] < 100:
                 return False
-            else:
-                return True
+
+        return True
 
     else:
         return data_sanitary
