@@ -395,7 +395,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     elif failed_curve_handling == 'retain':
         print (f'{dodgy_count}/{num_curves} curves that did not meet criteria were left in the dataset')
 
-    return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce]
+    return [ExtendsXY, RetractsXY, ExtendsForce, RetractsForce, AvExSens, AvRetSens]
 
 
 

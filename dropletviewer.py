@@ -22,6 +22,7 @@ import math
 from matplotlib import pyplot
 from circle_fit import taubinSVD
 from circle_fit import plot_data_circle
+import glob
 #%%
 def data_load_in(file_name):
     """
@@ -46,7 +47,7 @@ def data_load_in(file_name):
 
     """
     #Loads in the data
-    [[raw, defl, delp], metadict] = load_ardf.ardf2hdf5(file_name+'.ARDF')
+    [[raw, defl, delp], metadict] = load_ardf.ardf2hdf5(file_name)
     #Converts them from lists to numpy arrays
     raw = np.array(raw, dtype = object)
     defl = np.array(defl,dtype = object)
@@ -85,7 +86,7 @@ def data_convert(raw, defl, metadict):
 
     """
     #Processing the data for both the extend and retract curves
-    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,failed_curve_handling = 'retain')
+    ExtendsXY, RetractXY, ExtendsForce, RetractForce, AvExSens, AvRetSens = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,failed_curve_handling = 'retain')
     #Calculating the resolution of the plot 
     points_per_line = int(np.sqrt(len(ExtendsForce)))
     
@@ -103,7 +104,7 @@ def data_convert(raw, defl, metadict):
             + ' nm separation between pixels. The map was taken on '+date_taken)
     
     
-    return(ExtendsForce,points_per_line)
+    return(ExtendsForce,points_per_line, AvExSens, AvRetSens)
 
 
 
@@ -208,8 +209,8 @@ def data_process(ExtendsForce,points_per_line):
                 bubble_loc = np.where(region_type == 2)
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
-                if x[bubble_loc[0][-1]] < x[oil_loc[0][-1]]: #For no oil above bubble
-                    x[bubble_loc[0][-1]] = 0
+                #if x[bubble_loc[0][-1]] < x[oil_loc[0][-1]]: #For no oil above bubble
+                    #x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
 
             
@@ -345,9 +346,9 @@ def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
 
     """
     if mac == True:
-        newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/'
+        newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/testdata'
     else:
-        newpath = r'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/' 
+        newpath = r'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/testdata' 
         
     os.chdir(newpath)
     if initiator == False:
@@ -400,38 +401,6 @@ def side_profile(heights,row,horizontal = True):
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
-#%%
-file_name = "Si77S6BA11"
-is_MAC(initiator = True, mac = False)
-metadict = load_ardf.metadict_output(file_name+'.ARDF')
-date_taken = metadict["LastSaveForce"][-7:-1]
-newpath = is_MAC(file_name,date_taken, False)
-
-save_forcemap = False
-save_heatmap = False
-save_sideprofile = False
-
-x_pos, y_pos = (11,3)
-#%%
-raw, defl, metadict = data_load_in(file_name)
-ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
-
-#%%
-dropin_loc, bubble_height, oil_height = data_process(ExtendsForce, points_per_line)
-
-#%%
-heatmap2d(bubble_height,file_name)
-heatmap2d(oil_height,file_name)
-
-#%%
-forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
-
-#%%
-side_profile([oil_height,bubble_height],5)
-
-
-#%%
-
 def droplet_CA(droplet_height):
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
     y = droplet_height*1e6
@@ -452,16 +421,60 @@ def droplet_CA(droplet_height):
     theta = np.rad2deg(np.arccos(1-h/r))   
     
     return theta
-    
-theta = np.zeros(points_per_line)
 
-for i in range(points_per_line):
-    theta[i] = droplet_CA(dropin_loc[i])
+#%%
+data_wd = 'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/'
+date_taken = '230713'
+specific_wd = data_wd + date_taken+ '/'
+os.chdir(specific_wd)
 
-#%%    
-theta = theta[theta < 50]
-  
+files = []
+for file in os.listdir(specific_wd):
+    if file.endswith('.ARDF'):
+        files.append(file)
+        
+#%%
+        
+file_name = files[26]        
+newpath = specific_wd+file_name
+newpath = newpath.replace('.ARDF','')
+if not os.path.exists(newpath):
+    os.mkdir(newpath)
+
+metadict = load_ardf.metadict_output(file_name)
+date_taken = metadict["LastSaveForce"][-7:-1]
+
+save_forcemap = True
+save_heatmap = True
+save_sideprofile = True
+
+x_pos, y_pos = (0,0)
+
+raw, defl, metadict = data_load_in(file_name)
+ExtendsForce, points_per_line, AvExSens, AvRetSens = data_convert(raw, defl, metadict)
+dropin_loc, bubble_height, oil_height = data_process(ExtendsForce, points_per_line)
+
+heatmap2d(bubble_height,file_name)
+heatmap2d(oil_height,file_name)
+
+
+forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
+
+
+side_profile([oil_height,bubble_height],0)
     
+    
+    #theta = np.zeros(points_per_line)
+    
+    #for i in range(points_per_line):
+        #theta[i] = droplet_CA(dropin_loc[i])   
+#%%
+
+key_params = [metadict['SpringConstant'],metadict['InvOLS'],AvExSens,AvRetSens,metadict['ScanSize'],points_per_line]
+print(key_params)
+#%%
+original_path = 'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/testdata/'
+files = os.listdir(original_path)
 
 
 
