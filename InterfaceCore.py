@@ -156,8 +156,8 @@ def data_process(ExtendsForce,points_per_line, debug=False):
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
     topog = np.zeros((points_per_line,points_per_line))
     
-    Oil = 1
-    Gas = 2
+    # Oil = 1
+    # Gas = 2
 
     for i in range(points_per_line):
         for j in range(points_per_line):
@@ -231,23 +231,23 @@ def data_process(ExtendsForce,points_per_line, debug=False):
   
                     
                     if derivative_percent < 0.6 and force_average > -0.5e-7: # arb - FIXME
-                        region_type[peaks[k]:peaks[k+1]] = Gas
+                        region_type[peaks[k]:peaks[k+1]] = 2
                     
                     else:
-                        region_type[peaks[k]:peaks[k+1]] = Oil
+                        region_type[peaks[k]:peaks[k+1]] = 1
 
     
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
-            if sum(region_type == Gas) != 0:
-                bubble_loc = np.where(region_type == Gas)
+            if sum(region_type == 2) != 0:
+                bubble_loc = np.where(region_type == 2)
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
     
-            if sum(region_type == Oil) != 0:
-                oil_loc = np.where(region_type == Oil)
+            if sum(region_type == 1) != 0:
+                oil_loc = np.where(region_type == 1)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
@@ -488,7 +488,7 @@ def is_MAC(file_name = '',date_taken = '',mac = True, initiator = False):
 
     """
     if mac == True:
-        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Air\230721 Samples'
+        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Water\230801 Samples'
     else:
         newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
         
