@@ -28,7 +28,8 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
                          override_invOLS=False, override_spring_constant=False,
                          flatten_retract_with_approach=False, drop_deviant_compReg=False,
                          zero_at_constant_compliance=True,
-                         debug=False, abs_forcecrop=False, failed_curve_handling='remove'):
+                         debug=False, abs_forcecrop=False, failed_curve_handling='remove',
+                         hard_compliance_deflection_region=None, hard_compliance_quantile=None):
     """
     Processes raw Z piezo position and corresponding deflection data, returning normalised Z position and deflection curves, as well as
     tip-separation and force curves.
@@ -104,6 +105,17 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
           force curve
         - if 'retain' then failed curves are appended to the array in whatever state they were when they failed
 
+    hard_compliance_quantile (float or None):
+        If not none, the quantile of total y values to use for the compliance region. Flexible method that works
+        for most samples. Does not work when the constant compliance region is non-linear at high force. 
+        Values between 0.6 and 0.9 work well. The alternatice method is setting hard_compliance_deflection_region.
+        Either hard_compliance_quantile or hard_compliance_quantile must be None.
+
+    hard_compliance_deflection_region (list of length 2 or None)
+        If not none, the boundarise of the deflection region, in volts. Inflexiable method where values must be defined for each system
+        (spring constant-invOLS pairing. The alternatice method is setting hard_compliance_quantile.
+        Either hard_compliance_quantile or hard_compliance_quantile must be None.
+
     """
 
     # initialise variables
@@ -122,31 +134,21 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     if drop_deviant_compReg:
         assert failed_curve_handling == 'remove', 'If drop_deviant_compReg is True, failed_curve_handling must be "remove"'
 
+
+    # Determine global parameters
     if override_invOLS is True:
         assert metadict != None, 'You want to force a involS, but the metadict is empty. Either set\
                                   override_invOLS to False (allow it be be calculated from each constant\
                                   compliance region) or specify the involS you want to force.'
-
         assert 'InvOLS' in metadict.keys(), 'You want to force a involS, but the metadict does not contain one. Either set\
                                              override_invOLS to False (allow it be be calculated from each constant\
                                              compliance region) or specify the involS you want to force.'
-
-        override_invOLS = float(metadict['InvOLS'])*1e9 # This will be undone later, but allows override_invOLS to be supplied 
-                                                        # in nm/V
-
-
-
-    # Determine global parameters
-    if override_invOLS:
+        invOLS = float(metadict['InvOLS']) 
+    elif override_invOLS:
         invOLS = float(override_invOLS)/1e9
-    else:
-        if metadict == None:
-            invOLS = 1
-        elif 'InvOLS' in metadict.keys():
-            invOLS = float(metadict['InvOLS'])
-        else:
-            invOLS = 1
-
+        override_invOLS = True
+    else: 
+        invOLS = float(metadict['InvOLS']) 
 
     if override_spring_constant:
         spring_constant = override_spring_constant
@@ -167,12 +169,17 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
 
         original_spring_constant = spring_constant
 
+    if not (np.any(hard_compliance_quantile) == True) and not (np.any(hard_compliance_deflection_region) == True):
+        hard_compliance_quantile = 0.8
+
+    assert np.any(hard_compliance_quantile) != np.any(hard_compliance_deflection_region), 'Cannot provide both hard_compliance_quantile and hard_compliance_deflection_region'
+
 
     # Draw an axis to use for debugging
     debugplotter = plotdebug(debug=debug)
 
 
-    print (f"InvOLS: {invOLS} nm/V, Sfpring constant: {spring_constant}")
+    print (f"InvOLS: {invOLS} nm/V, Spring constant: {spring_constant}")
     if override_invOLS is False:
         print ("Note: invOLS will be calculated from the constant compliance region of each force curve. If this is not desired set override_invOLS=True.")
 
@@ -231,7 +238,6 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             data_sanitary = 'Failed on unit conversion'
 
 
-
         # Split data into approach and retract - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary(XYdata, data_sanitary=data_sanitary)
         if data_sanitary is True:
@@ -241,38 +247,32 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             data_sanitary = 'Failed on dwell drift removal'
 
 
-
         # Remove baseline  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
             ExtendXY  = RemoveBaseline_nOrder(ExtendXY, order=1, approachFraction=0.4, debugger=debugplotter)
             RetractXY = RemoveBaseline_nOrder(RetractXY, order=1, approachFraction=0.4, debugger=debugplotter)
             debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
-
         elif data_sanitary is False:
             data_sanitary = 'Failed on splitExtendRetract'
-
 
 
         # Zero force curves - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
             if zero_at_constant_compliance: # This might break some things down the line. I guess we'll see...
-                ExtendXY, RetractXY = zeroForceCurves(ExtendXY), zeroForceCurves(RetractXY)
+                ExtendXY, RetractXY = zeroForceCurves(ExtendXY, quantile=hard_compliance_quantile, deflection_range=hard_compliance_deflection_region),\
+                                      zeroForceCurves(RetractXY, quantile=hard_compliance_quantile, deflection_range=hard_compliance_deflection_region)
                 debugplotter.plot( curves=[ExtendXY, RetractXY], labels=['Extend', 'Retract'], clear=False)
         elif data_sanitary is False:
             data_sanitary = 'Failed on first baseline correction'
 
 
-
         # Calculate sensitivity - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
         data_sanitary = is_data_sanitary([ExtendXY, RetractXY], data_sanitary=data_sanitary)
         if data_sanitary is True:
-            # if override_invOLS is False:
-            #     Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
-            # else:
-            #     Esen, Rsen = override_invOLS, override_invOLS
-            Esen, Rsen = calculateSensitivity(ExtendXY), calculateSensitivity(RetractXY)
+            Esen, Rsen = calculateSensitivity(ExtendXY, quantile=hard_compliance_quantile, deflection_range=hard_compliance_deflection_region),\
+                         calculateSensitivity(RetractXY, quantile=hard_compliance_quantile, deflection_range=hard_compliance_deflection_region)
 
         elif data_sanitary is False:
             data_sanitary = 'failed on zero force curves'
@@ -289,7 +289,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             if override_invOLS is False:
                 average_sens = (Esen + Rsen)/2
             else:
-                average_sens = override_invOLS
+                average_sens = invOLS
 
             ExtendForce  = ConvertToForceVSep(ExtendXY, sensitivity=average_sens, spring_constant=float(spring_constant))
             RetractForce = ConvertToForceVSep(RetractXY, sensitivity=average_sens, spring_constant=float(spring_constant))
@@ -304,7 +304,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             if flatten_retract_with_approach is True:
                 ExtendForce, RetractForce = RemoveBaseline_nOrder(ExtendForce, approachFraction=0.1, bonus_ForceData=RetractForce)
         elif data_sanitary is False:
-            print (f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
+            print(f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
 
         if np.any(ExtendForce) == None:
             print ('baseline curve' , data_sanitary, (number_of_curves_before_equil + idx), RetractForce)
@@ -313,7 +313,8 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         data_sanitary = is_data_sanitary([ExtendForce, RetractForce], data_sanitary=data_sanitary)
 
         if data_sanitary is True:
-            ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop, zero=zero_at_constant_compliance)
+            ExtendForce, RetractForce = clean_forceData(ExtendForce, RetractForce, forcecrop=abs_forcecrop, zero=zero_at_constant_compliance,
+                                                        quantile=hard_compliance_quantile, deflection_range=hard_compliance_deflection_region)
         elif data_sanitary is False:
             data_sanitary = 'Failed on final baseline curvature correction'
 
@@ -483,7 +484,7 @@ def is_data_sanitary(data, data_sanitary=True):
         return data_sanitary
 
 
-def clean_forceData(ApproachForceData, RetractForceData, forcecrop=False, zero=True):
+def clean_forceData(ApproachForceData, RetractForceData, forcecrop=False, zero=True, **kwargs):
     """
     'cleans up' approach and retract data. It does this by cropping out forces above a certain threshold
     and re-zeroing them.
@@ -500,8 +501,8 @@ def clean_forceData(ApproachForceData, RetractForceData, forcecrop=False, zero=T
         newRetractForceData  = RetractForceData
 
     if zero:
-        newApproachForceData = zeroForceCurves(newApproachForceData)
-        newRetractForceData = zeroForceCurves(newRetractForceData)
+        newApproachForceData = zeroForceCurves(newApproachForceData, **kwargs)
+        newRetractForceData = zeroForceCurves(newRetractForceData, **kwargs)
 
 
     return newApproachForceData, newRetractForceData
@@ -527,37 +528,54 @@ def splitExtendRetract(ForceData, flip=False):
 
 
 
-def extractHardContactRegion(ForceData, SplitFirst=False, quantile=0.90):
+def extractHardContactRegion(ForceData, quantile=None, deflection_range=None, SplitFirst=False):
     """
     Extracts compliance regions from force data. If the data contains both extension and retraction,
     split first should be true.
 
     ForceData : a 2xN array, where the [0] is the Z-piezo position and [1] is the deflection voltage
 
+    quantile : float between 0 and 1
+        The quantile for deflection values to use for the constant compliance region. Values of between
+        0.6 and 0.9 work well.
+
     returns:
     data from the compliance region. If ForceData included both an extension and retraction curve, then
     will return compliance data from both curves.
 
     """
+    ForceData = np.array(ForceData)
 
     if SplitFirst:
         Extend, Retract = splitExtendRetract(ForceData)
-        return extractHardContactRegion(Extend, False), extractHardContactRegion(Retract, False)
+        return extractHardContactRegion(Extend, quantile=quantile, deflection_range=deflection_range,  SplitFirst=False),\
+               extractHardContactRegion(Retract, quantile=quantile, deflection_range=deflection_range, SplitFirst=False)
 
     else:
-        q = np.nanquantile(ForceData[1], 0.9, axis=0)
-        if q < 0:
-            q=0
+        x, y = ForceData
 
-        IndexAboveThreshold = np.argwhere(ForceData[1]>q)
-        FirstConsecutiveSet = consecutive(IndexAboveThreshold.flatten())[0]
-        MaxIndex = FirstConsecutiveSet[0]
-        MinIndex = FirstConsecutiveSet[-1]
+        if deflection_range:
+            assert quantile is None, "Cannot provide both quantile and deflection_range to extractHardContactRegion"
+            mask = np.argwhere(np.logical_and(y>deflection_range[0], y<deflection_range[1]))
+            FirstConsecutiveSet = consecutive(mask)[0].flatten()
+            return ForceData[:,FirstConsecutiveSet]
 
-        if MaxIndex > MinIndex: # This shouldn't be required if the sanitisation in splitExtendRetract works properly
-            return ForceData[:,MinIndex:]
-        else:
-            return ForceData[:,:MinIndex]
+        else: 
+            assert quantile is not None, "Must provide either quantile or deflection_range"
+
+            q = np.nanquantile(y, quantile, axis=0)
+            if q < 0:
+                q=0
+
+            IndexAboveThreshold = np.argwhere(y>q)
+            FirstConsecutiveSet = consecutive(IndexAboveThreshold.flatten())[0]
+            MaxIndex = FirstConsecutiveSet[0]
+            MinIndex = FirstConsecutiveSet[-1]
+
+            if MaxIndex > MinIndex: # This shouldn't be required if the sanitisation in splitExtendRetract works properly
+                return ForceData[:,MinIndex:]
+            else:
+                return ForceData[:,:MinIndex]
 
 
 
@@ -645,12 +663,14 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
 
 
 
-def zeroForceCurves(ForceData):
+def zeroForceCurves(ForceData, **kwargs):
     """
     Performs a zeroing on force vs. separation curves
 
     (NOT displacement / z-piezeo position curves - use "ConvertToForceVSep" to convert
     to force vs. separation first)
+
+    kwargs are passed to extractHardContactRegion
     """
 
     ForceData = np.array(ForceData) # Sanitise data input
@@ -658,7 +678,7 @@ def zeroForceCurves(ForceData):
     if ForceData.ndim == 3:
         for FD in ForceData:
             try:
-                compliance = extractHardContactRegion(ForceData)
+                compliance = extractHardContactRegion(ForceData, **kwargs)
                 comp_len_cutoff = int(compliance.shape[1]/2)
                 FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
             except IndexError:
@@ -666,7 +686,7 @@ def zeroForceCurves(ForceData):
 
     else:
         try:
-            compliance = extractHardContactRegion(ForceData)
+            compliance = extractHardContactRegion(ForceData, **kwargs)
             comp_len_cutoff = int(compliance.shape[1]/2)
             ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
         except IndexError:
@@ -676,10 +696,13 @@ def zeroForceCurves(ForceData):
 
 
 
-def calculateSensitivity(ForceData):
+def calculateSensitivity(ForceData, **kwargs):
+    """
+    kwargs are passed to extractHardContactRegion
 
+    """
     try:
-        compliance = extractHardContactRegion(ForceData)
+        compliance = extractHardContactRegion(ForceData, **kwargs)
 
         comp_len_cutoff = int(compliance.shape[1]/1.5)
         Sen = -1/stats.linregress(compliance[0, :comp_len_cutoff], compliance[1, :comp_len_cutoff]).slope
@@ -696,7 +719,7 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
     Converts the data to separation (if spring constant != 1, also converts to force)
     """
     if sensitivity==None:
-        sensitivity = calculateSensitivity(ForceData)
+        sensitivity = calculateSensitivity(ForceData, quantile=0.8)
 
     if not np.any(ForceData):
         return np.nan
@@ -769,6 +792,7 @@ def resampleForceDataArray(ForceData):
         if isnan:
             newForceData.append([newZ, np.zeros_like(newZ)])
         else:
-            newForceData.append([newZ, np.interp(newZ, data[0], data[1], right=np.nan)])
+            newForceData.append([newZ, np.interp(newZ, data[0], data[1],
+                                 right=np.nan, left=np.nan)])
 
     return np.array(newForceData)

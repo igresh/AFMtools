@@ -1,6 +1,7 @@
 import numpy as np
 import glob
 import matplotlib.pyplot as plt
+import os
 
 def consecutive(data, stepsize=1):
     "Return groups of consecutive elements"
@@ -33,14 +34,25 @@ class plotdebug (object):
 
         if self.debug:
             self.fig, self.ax = plt.subplots()
+            self.axt = self.ax.twinx()
+            
+        self.plotted = False
 
-    def plot(self, curves=[None], labels=[None], clear=False, **kwrds):
-        if self.debug:
+    def plot(self, curves=[None], labels=[None], clear=False, ax=1, **kwrds):
+
+        if self.debug == True:
+            self.plotted = True
+            if ax==1:
+                ax = self.ax
+            else:
+                ax = self.axt
+
             if clear:
-                self.ax.cla()
+                ax.cla()
+        
             for c, l in zip(curves, labels):
                 try:
-                    self.ax.plot(c[0], c[1], label=l, **kwrds)
+                    ax.plot(c[0], c[1], label=l, **kwrds)
                     self.make_legend()
                 except:
                     print(f"plotdebug could not plot curve with label: {l}, c: {c}")
@@ -48,13 +60,21 @@ class plotdebug (object):
         return
 
 
-    def scatter(self, curves=[None], labels=[None], clear=False, **kwrds):
-        if self.debug:
+    def scatter(self, curves=[None], labels=[None], clear=False, ax=1, **kwrds):
+    
+        if self.debug == True:
+            self.plotted = True
+
+            if ax==1:
+                ax = self.ax
+            else:
+                ax = self.axt
+    
             if clear:
-                self.ax.cla()
+                ax.cla()
             for c, l in zip(curves, labels):
                 try:
-                    self.ax.scatter(c[0], c[1], label=l, **kwrds)
+                    ax.scatter(c[0], c[1], label=l, **kwrds)
                     self.make_legend()
                 except:
                     print(f"plotdebug could not scatter curve with label: {l}")
@@ -68,7 +88,11 @@ class plotdebug (object):
         self.ax.cla()
 
 
-    def make_legend(self):
-        handles, labels = self.ax.get_legend_handles_labels()
+    def make_legend(self, loc=None):
+        handles1, labels1 = self.ax.get_legend_handles_labels()
+        handles2, labels2 = self.axt.get_legend_handles_labels()
+        handles = handles1 + handles2
+        labels = labels1 + labels2
+
         by_label = dict(zip(labels, handles))
-        self.ax.legend(by_label.values(), by_label.keys())
+        self.ax.legend(by_label.values(), by_label.keys(), loc=loc)

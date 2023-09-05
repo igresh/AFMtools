@@ -7,17 +7,16 @@ a meniscus force map.
 """
 
 import os
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
-sys.path.append('/Users/seamuslilley/Documents/GitHub/AFMtools')
 import load_ardf  
 import ForceCurveFuncs
+from Utility import plotdebug
 from scipy.signal import savgol_filter 
-from mpl_toolkits.mplot3d import Axes3D
 #from pylab import * 
 import scipy
-#%%
+
+
 def data_load_in(file_name):
     """
     Imports the data and converts it from an .ARDF format into separate arrays of the 
@@ -55,7 +54,8 @@ def data_load_in(file_name):
     
     return raw, defl, metadict
 
-def data_convert(raw, defl, metadict):
+def data_convert(raw, defl, metadict, zero_constant_compliance=True,
+                 rotate_map_90=0):
     """
     Takes the raw (zsensor and deflection) data and converts it into a force-separation format.
     The resolution of the map for x and y must be the same length
@@ -68,41 +68,62 @@ def data_convert(raw, defl, metadict):
         An numpy object array that contains all of the deflection data for each force curve.
     metadict : dict
         A dictionary storing all of the experimental parameters used to produce the force map.
+        
+    rotate_map : bool
+        Whether to rotate force map by 90˚ * rotate_map.  May help to to match image
+        up to that seen in other software packages.
 
     Returns
     -------
-    ExtendsForce : np.array
+    ForceMap : np.array
         A 4(!) dimensional array that contains the force and separation data for all points
         taken in the force map. This is shaped to replicate the force map grid as seen in the
         Asylum software when taking a map. 
+    
+    ExtendsForce : np.array
+        The plain old un-mappified array of force curves, just in case you wanted to
+        plot them.
     points_per_line : int
         The resolution of the force map.
 
     """
+    
+
+
+    date_taken = metadict["LastSaveForce"][-7:-1]
+
     #Processing the data for both the extend and retract curves
-    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl,metadict,failed_curve_handling = 'retain')
-    #Calculating the resolution of the plot 
-    points_per_line = int(np.sqrt(len(ExtendsForce)))
+    ExtendsXY, RetractXY, ExtendsForce, RetractForce = ForceCurveFuncs.process_zpos_vs_defl(raw, defl, metadict,
+                                                                                            failed_curve_handling = 'retain',
+                                                                                            zero_at_constant_compliance=zero_constant_compliance)
     
+    # resample so all force curves are the same length
     ExtendsForce = ForceCurveFuncs.resampleForceDataArray(ExtendsForce)
-    ExtendsForce = np.reshape(ExtendsForce,(points_per_line,points_per_line,2,-1))
+
     
-    #Rotates the points 180 deg to match the initial force map
-    ExtendsForce = np.array(list(zip(*ExtendsForce[::-1])))
-    ExtendsForce = np.array(list(zip(*ExtendsForce[::-1])))
-    #Flips every second row to match the initial force map
-    ExtendsForce[1::2, :] = ExtendsForce[1::2, ::-1]
+    # Calculating the resolution of the plot 
+    points_per_line = int(np.sqrt(ExtendsForce.shape[0]))
+    ForceMap = np.reshape(ExtendsForce,(points_per_line,points_per_line,2,-1))
     
+    # Flips every second row to match the initial force map
+    ForceMap[1::2, :] = ForceMap[1::2, ::-1]
+
+
+    for i in range(rotate_map_90):
+        ForceMap = np.array(list(zip(*ForceMap[::-1])))
+        
     print('This is a '+ str(points_per_line) + ' resolution forcemap, over a'
-          + metadict["ScanSize"] + ' area. This corresponds to ' + str(round(float(metadict["ScanSize"])/points_per_line,9)*1e9)
-            + ' nm separation between pixels. The map was taken on '+date_taken)
+          + metadict["ScanSize"] + ' area.')
+    print('This corresponds to ' + str(round(float(metadict["ScanSize"])/points_per_line,9)*1e9)
+            + ' nm separation between pixels.')
+    print('The map was taken on ' + date_taken)
     
     
-    return(ExtendsForce,points_per_line)
+    return(ForceMap, ExtendsForce, points_per_line)
 
 
 
-def data_process(ExtendsForce,points_per_line):
+def data_process(ExtendsForce,points_per_line, debug=False):
     """
     Identifies the heights corresponding to the initial pull-in event for the given
     threshold value. 
@@ -123,93 +144,181 @@ def data_process(ExtendsForce,points_per_line):
         shaped in an array to match the initial force map. 
 
     """
+    
+    
+    debugplotter = plotdebug(debug=debug)
+
+
     #Initialising the arrays
     dropin_loc = np.zeros((points_per_line,points_per_line))
     bubble_height = np.zeros((points_per_line,points_per_line))
     oil_height = np.zeros((points_per_line,points_per_line))
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
+    topog = np.zeros((points_per_line,points_per_line))
     
+    Oil = 1
+    Gas = 2
+
     for i in range(points_per_line):
         for j in range(points_per_line):
             
-            #Cleaning the x any y data (removing nan and smoothing the y)
-            x,y = ExtendsForce[i][j]
-            x = x[~np.isnan(y)]
-            y = y[~np.isnan(y)]
-            #y = y[x>0]
-            #x = x[x>0]
-            y = savgol_filter(y, 51, 2)
-            
-            #Differentiating the data and smoothing
-            dy = np.diff(y)
-            dy = savgol_filter(dy, 51, 2)
+            # Debugging stuff:
+            if debug==True and debugplotter.plotted == True:
+                debugplotter.show_plot()
+                userinput = input("Do you want to continue?")
+                if userinput.lower() != 'y':
+                    return None, None, None, None
+                debugplotter.clear_plot()
+                
+            elif type(debug) is list:
+                if  i == debug[0] and j == debug[1]:
+                    print (f'debugging {i}, {j}')
+                    debugplotter.debug = True
+                else:
+                    debugplotter.debug = False
 
-            
-            dx = x[range(len(dy))]
-            
-            #Taking the second derivative and smoothing that
-            d2y = np.diff(dy)
-            d2y = savgol_filter(d2y,81,2)
-            
+                
+
+            #Cleaning the x any y data (removing nan and smoothing the y)
+            x,y = sanitize_FCdata(ExtendsForce[i][j])
+
+            hard_contact = np.min(x)
+            topog[i][j] = hard_contact
+            x = x - hard_contact
+    
+
+            #Differentiating the data and smoothing
+            dy = savgol_filter(y, deriv=1, **calculate_savgol_params(x))
+            # units in Newtons oer meter (I think)
+    
             #Ensuring that the script identifies all spikes in gradient,
             #either positive or negative
             dy_abs = abs(dy)
             
             #Idenitifying the peaks in the (abs) first derivative
-            peaks = scipy.signal.find_peaks(dy_abs,1e-10, distance = 50, prominence = 1e-10)
-            peaks = peaks[0]
-            if np.argmin(dy) == 0:
+            peaks, ___ = scipy.signal.find_peaks(dy_abs,
+                                                 height=0.2, # n/m
+                                                 distance=len(x)/50)
+
+            if np.argmin(dy) == 0: #IG: Not sure what this is doing
                 peaks = np.insert(peaks,0,np.argmin(dy))
-            region_type = np.zeros(len(y))
+                
+            region_type = np.zeros_like(y)
 
             if len(peaks) == 0:
-                print('Water')
                 dropin_loc[i][j] = 0
 
             else:
+                # Make sure there is a 'peak' at the constant compliance region.
+                if peaks[0] > 5:
+                    peaks = np.insert(peaks,0,0)
+
+
                 for k in range(len(peaks)-1):
                     #Selecting the derivative values between two peaks
-                    peak_diff_range = dx[peaks[k]:peaks[k+1]]
-                    peak_range = y[peaks[k]:peaks[k+1]]
+                    # peak_diff_range = x[peaks[k]:peaks[k+1]]
+                    #peak_range = y[peaks[k]:peaks[k+1]]
                     #Calculating how much of the values are positive
-                    derivative_percent = sum(dy[peaks[k]:peaks[k+1]] > 0)/(peaks[k+1]-peaks[k])
+                    derivative_percent = np.average(dy[peaks[k]:peaks[k+1]])
+                    force_average = np.average(y[peaks[k]:peaks[k+1]])
+                    #Derivative_percent function looks at the derivative between adjacent peaks 
+                    #and determines whether the slope is positive or not
+                    #By summing this increments over a region, we determine if this has an oil or bubble signature
                     
                     #Different cases considered for deciding if oil or gas and
                     #assigning it a generic placeholder
-                    if derivative_percent > 0.7:
-                        #print('Oil')
-                        region_type[peaks[k]:peaks[k+1]] = 1
-                    elif derivative_percent < 0.3:
-                        #print('Gas')
-                        region_type[peaks[k]:peaks[k+1]] = 2
-                    elif abs(np.min(peak_range)) > 0.1e-8:
-                        #print('Gas')
-                        region_type[peaks[k]:peaks[k+1]] = 1
+  
+                    
+                    if derivative_percent < 0.6 and force_average > -0.5e-7: # arb - FIXME
+                        region_type[peaks[k]:peaks[k+1]] = Gas
+                    
                     else:
-                        #print('Oil')
-                        region_type[peaks[k]:peaks[k+1]] = 2
+                        region_type[peaks[k]:peaks[k+1]] = Oil
 
+    
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
-            if sum(region_type == 2) != 0:
-                bubble_loc = np.where(region_type == 2)
+            if sum(region_type == Gas) != 0:
+                bubble_loc = np.where(region_type == Gas)
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
-
-            if sum(region_type == 1) != 0:
-                oil_loc = np.where(region_type == 1)
+    
+            if sum(region_type == Oil) != 0:
+                oil_loc = np.where(region_type == Oil)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
-
                 
+            debugplotter.plot( curves=[[x,y]], labels=['Fresh'], clear=False, ax=1, color='k')
+            debugplotter.plot( curves=[[x, dy_abs]], labels=['abs dy'], clear=False, ax=2, color='r')
+            debugplotter.scatter([[x, region_type], [x[peaks], np.zeros_like(peaks)]], labels=['region type', 'peaks'], ax=2)
 
+    
+                    
+    
+                
+    return(dropin_loc,bubble_height, oil_height, topog)
+
+def flatten_planefit (topog_map, verbose=False):
+    # logic from https://stackoverflow.com/questions/35005386/fitting-a-plane-to-a-2d-array
+
+    
+    m = topog_map.shape[0]
+    n = topog_map.shape[1]
+    s = m*n
+
+    X1, X2 = np.mgrid[:m, :n]
+
+    X = np.hstack((np.reshape(X1, (s, 1)) , np.reshape(X2, (s, 1)) ) )
+    X = np.hstack((np.ones((s, 1)) , X ))
+
+    YY = np.reshape(topog_map, (m*n, 1))
+
+    theta = np.dot(np.dot( np.linalg.pinv(np.dot(X.transpose(), X)), X.transpose()), YY)
+
+    plane = np.reshape(np.dot(X, theta), (m, n));
+
+    flat_topog = topog_map - plane
+    
+    if verbose:
+        return flat_topog, plane
+    else:
+        return flat_topog
+
+def sanitize_FCdata (FCdata):
+    """
+    removes NaNs and smooths 
+    """
+    x, y  = FCdata
+    x = x[~np.isnan(y)]
+    y = y[~np.isnan(y)]
+    
+    y = savgol_filter(y, **calculate_savgol_params(x))
+    
+    return x, y
             
-    return(dropin_loc,bubble_height, oil_height)
 
-def heatmap2d(arr, file_name):
+def calculate_savgol_params(x_axis, polyorder=2):
+    spacing = x_axis[1] - x_axis[0] # in meters
+    window_length =  int(len(x_axis)/50)
+    
+    # ensure window length is at least 5nm
+    if window_length * spacing < 5*1e-9:
+        window_length = int(5*1e-9/spacing)
+        
+    # ensure window length is odd
+    if window_length%2 == 0:
+        window_length += 1
+        
+    #print (window_length, polyorder, spacing)
+        
+    return {'window_length':window_length,
+            'polyorder':polyorder,
+            'delta':spacing}
+
+def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=False):
     """
     Plots the height array as a heatmap. Option to save the plot as well.
     
@@ -231,16 +340,13 @@ def heatmap2d(arr, file_name):
         
     image_size = int(float(metadict["ScanSize"])/1e-6)
     
-    if np.sum(arr == bubble_height) == points_per_line**2:
-        file_name += 'bubble_height_'
-    elif np.sum(arr == oil_height) == points_per_line**2:
-        file_name += 'oil_height_'
-    else:
-        file_name += 'oil_height_'
+    file_name += '_' + postnomial
+
     
     #Plotting the heatmap
     plt.figure()
-    plt.imshow(arr, cmap='viridis',extent=[0,image_size,0,image_size])
+    plt.suptitle(postnomial)
+    plt.imshow(arr, cmap='magma',extent=[0,image_size,0,image_size])
     cbar = plt.colorbar()
     cbar.set_label('Thickness ($\mu$m)', rotation = 270, labelpad = 20)
     plt.xlabel('x ($\mu$m)')
@@ -253,7 +359,7 @@ def heatmap2d(arr, file_name):
     plt.rcParams['figure.dpi'] = 1000
     plt.show()
     
-def forcemapplot(data,coords,f_name = ''):
+def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height, topog, newpath='./', postnomial='', save_forcemap=False):
     """
     Plots a single force curve. Helps with debugging, as you only consider one
     force curve at a time. It also converts both of the parameters to nN and um. 
@@ -287,6 +393,7 @@ def forcemapplot(data,coords,f_name = ''):
     jump_in = dropin_loc[coord_x,coord_y]/1e-6
     bubble_h = bubble_height[coord_x,coord_y]/1e-6
     oil_h  = oil_height[coord_x,coord_y]/1e-6
+    topog = topog[coord_x,coord_y]/1e-6
     
 
     #print(height)
@@ -303,8 +410,8 @@ def forcemapplot(data,coords,f_name = ''):
     #plt.ylim((min(y)-10,150))
     plt.xticks(fontsize = 12)
     plt.yticks(fontsize = 12)
-    plt.xlim((0,1.5*np.max(oil_height)*1e6))
-    #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
+    #plt.xlim((0,1.5*np.max(oil_height)*1e6))
+    plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
     plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
     plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
     plt.legend()
@@ -314,37 +421,8 @@ def forcemapplot(data,coords,f_name = ''):
         save_name = file_name + coords + 'forcecurve'+'.png'
         plt.savefig(newpath_forcecurve + '/' + save_name)
     plt.show()
-    
-def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
-    """
-    The specific folder path will change depending on if I (Seamus) am working
-    on a Mac or PC. This helps to switch between the two. Not necessary if only
-    working from one device. Update the path for different users.
 
-    Parameters
-    ----------
-    mac : boolean, optional
-        Are you (Seamus) working on your mac? The default is True.
-
-    Returns
-    -------
-    newpath : str
-        Defines the path that specifies what folder to work in. Will change
-        depending on if I (Seamus) am working on a Mac or PC.
-
-    """
-    if mac == True:
-        newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/'
-    else:
-        newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
-        
-    os.chdir(newpath)
-    if initiator == False:
-        newpath = newpath + date_taken + '/' +file_name
-    return newpath
-    
-
-def side_profile(heights,row,horizontal = True):
+def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./', postnomial='', horizontal=True, save_sideprofile=False):
     """
     Plots the side profile of the data for a specified row (with the option
                                                             to instead select
@@ -377,43 +455,42 @@ def side_profile(heights,row,horizontal = True):
         bubble_y = heights[1][row,:]/1e-6
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
     plt.figure()
-    plt.plot(x,oil_y,'x-',c='tab:blue')
-    plt.plot(x,bubble_y,'x-', c = 'tab:red')
+    plt.plot(x,oil_y,'x-',c='tab:blue', label = 'Oil Height')
+    plt.plot(x,bubble_y,'x-', c = 'tab:red', label = 'Bubble Height')
     plt.rcParams['figure.dpi'] = 500
     plt.xlabel('x ($\mu$m)')
-    plt.ylabel('Height ($\mu$m)') 
+    plt.ylabel('Height ($\mu$m)')
+    plt.legend()
     
     if save_sideprofile == True:
         save_name = file_name + 'side_profile'+str(row)+'.png'
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
-#%%
-file_name = "Si77S5UB2"
-is_MAC(initiator = True)
-metadict = load_ardf.metadict_output(file_name+'.ARDF')
-date_taken = metadict["LastSaveForce"][-7:-1]
-newpath = is_MAC(file_name,date_taken)
+def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
+    """
+    The specific folder path will change depending on if I (Seamus) am working
+    on a Mac or PC. This helps to switch between the two. Not necessary if only
+    working from one device. Update the path for different users.
 
-save_forcemap = True
-save_heatmap = True
-save_sideprofile = False
+    Parameters
+    ----------
+    mac : boolean, optional
+        Are you (Seamus) working on your mac? The default is True.
 
-x_pos, y_pos = (8,3)
-#%%
-raw, defl, metadict = data_load_in(file_name)
-ExtendsForce, points_per_line = data_convert(raw, defl, metadict)
+    Returns
+    -------
+    newpath : str
+        Defines the path that specifies what folder to work in. Will change
+        depending on if I (Seamus) am working on a Mac or PC.
 
-#%%
-dropin_loc, bubble_height, oil_height = data_process(ExtendsForce, points_per_line)
-
-#%%
-heatmap2d(bubble_height,file_name)
-heatmap2d(oil_height,file_name)
-
-#%%
-forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
-
-#%%
-side_profile([oil_height,bubble_height],6)
-
+    """
+    if mac == True:
+        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Air\230721 Samples'
+    else:
+        newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
+        
+    os.chdir(newpath)
+    if initiator == False:
+        newpath = newpath + date_taken + '/' +file_name
+    return newpath
