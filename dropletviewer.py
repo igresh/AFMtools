@@ -23,6 +23,7 @@ from matplotlib import pyplot
 from circle_fit import taubinSVD
 from circle_fit import plot_data_circle
 import glob
+import pandas as pd
 #%%
 def data_load_in(file_name):
     """
@@ -133,7 +134,10 @@ def data_process(ExtendsForce,points_per_line):
     dropin_loc = np.zeros((points_per_line,points_per_line))
     bubble_height = np.zeros((points_per_line,points_per_line))
     oil_height = np.zeros((points_per_line,points_per_line))
+    gas_grad = np.zeros((points_per_line,points_per_line))
+    bubble_def = np.zeros((points_per_line,points_per_line))
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
+    
     
     for i in range(points_per_line):
         for j in range(points_per_line):
@@ -144,7 +148,7 @@ def data_process(ExtendsForce,points_per_line):
             y = y[~np.isnan(y)]
             #y = y[x>0]
             #x = x[x>0]
-            y = savgol_filter(y, 51, 2)
+            #y = savgol_filter(y, 51, 2)
             
             #Differentiating the data and smoothing
             dy = np.diff(y)
@@ -212,9 +216,26 @@ def data_process(ExtendsForce,points_per_line):
                 #if x[bubble_loc[0][-1]] < x[oil_loc[0][-1]]: #For no oil above bubble
                     #x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
+                
+                # init_gas = np.where(peaks == bubble_loc[0][-1]+1)
 
+                # gas_grad_range = y[peaks[init_gas[0][0]-1]:peaks[init_gas[0][0]]]
+                # gas_grad_domain = x[peaks[init_gas[0][0]-1]:peaks[init_gas[0][0]]]
+                
+                # #gas_grad_range = y[np.where(y == y[bubble_loc[0][-1]]):np.where(y == y[bubble_loc[0][-2]])] 
+                # y1 = np.min(gas_grad_range)
+                # y2 = np.max(gas_grad_range)
+                # x1 = x[np.where(y == y1)]
+                # x2 = x[np.where(y == y2)]
+                
+                # gas_grad[i][j] = np.abs((y2-y1)/(x2-x1))
+                
+                # if gas_grad[i][j] != 0:
+                #     k_cant = float(metadict['SpringConstant'])
+                #     bubble_def[i][j] = gas_grad[i][j]*k_cant/(k_cant - gas_grad[i][j])
+                   
             
-    return(dropin_loc,bubble_height, oil_height)
+    return(dropin_loc,bubble_height, oil_height,bubble_def)
 
 def heatmap2d(arr, file_name):
     """
@@ -251,9 +272,9 @@ def heatmap2d(arr, file_name):
     
     #Plotting the heatmap
     plt.figure()
-    plt.imshow(arr, cmap=colour,extent=[0,image_size,0,image_size])
+    plt.imshow(arr*1e6, cmap=colour,extent=[0,image_size,0,image_size])
     cbar = plt.colorbar()
-    cbar.set_label('Thickness ($\mu$m)', rotation = 270, labelpad = 20)
+    cbar.set_label('Height ($\mu$m)', rotation = 270, labelpad = 20)
     plt.xlabel('x ($\mu$m)')
     plt.ylabel('y ($\mu$m)')
     plt.xticks(np.arange(0,image_size+1,image_size/4))
@@ -300,7 +321,8 @@ def forcemapplot(data,coords,f_name = ''):
     bubble_h = bubble_height[coord_x,coord_y]/1e-6
     oil_h  = oil_height[coord_x,coord_y]/1e-6
     
-
+    surface_feature = pd.DataFrame(np.reshape(dropin_loc[dropin_loc > 1e-7],(1,-1)))
+    feature_quantiles = pd.DataFrame.to_numpy(surface_feature.quantile([0.25,0.5,0.9], axis = 1))
     #print(height)
     
     coords = str(coords)
@@ -309,15 +331,15 @@ def forcemapplot(data,coords,f_name = ''):
     
     plt.figure()
     plt.plot(x,y,c='tab:blue')
-    plt.xlabel('Displacement ($\mu$m)')
+    plt.xlabel('Separation ($\mu$m)')
     plt.ylabel('Force (nN)') 
     plt.rcParams['figure.dpi'] = 500
     #plt.ylim((min(y)-10,150))
     plt.xticks(fontsize = 12)
     plt.yticks(fontsize = 12)
-    plt.xlim((0,1.5*np.max(oil_height)*1e6))
+    #plt.xlim((-0.2,1.2*feature_quantiles[2]*1e6))#Scales the plot limit based on quantiles, not max values
     #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
-    plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
+    # plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
     plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
     plt.legend()
     
@@ -326,35 +348,7 @@ def forcemapplot(data,coords,f_name = ''):
         save_name = file_name + coords + 'forcecurve'+'.png'
         plt.savefig(newpath_forcecurve + '/' + save_name)
     plt.show()
-    
-def is_MAC(file_name = '',date_taken = '',mac = True,initiator = False):
-    """
-    The specific folder path will change depending on if I (Seamus) am working
-    on a Mac or PC. This helps to switch between the two. Not necessary if only
-    working from one device. Update the path for different users.
 
-    Parameters
-    ----------
-    mac : boolean, optional
-        Are you (Seamus) working on your mac? The default is True.
-
-    Returns
-    -------
-    newpath : str
-        Defines the path that specifies what folder to work in. Will change
-        depending on if I (Seamus) am working on a Mac or PC.
-
-    """
-    if mac == True:
-        newpath = r'/Users/seamuslilley/Library/CloudStorage/OneDrive-Personal/University/USYD (2021-)/Honours/AFM Data Processing/testdata'
-    else:
-        newpath = r'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/testdata' 
-        
-    os.chdir(newpath)
-    if initiator == False:
-        newpath = newpath + date_taken + '/' +file_name
-    return newpath
-    
 
 def side_profile(heights,row,horizontal = True):
     """
@@ -389,12 +383,12 @@ def side_profile(heights,row,horizontal = True):
         bubble_y = heights[1][row,:]/1e-6
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
     plt.figure()
-    plt.plot(x,oil_y,'x-',c='tab:blue')
-    plt.plot(x,bubble_y,'x-', c = 'tab:red')
+    plt.plot(x,oil_y,'x-',c='tab:blue', label = 'Oil Height')
+    #plt.plot(x,bubble_y,'x-', c = 'tab:red')
     plt.rcParams['figure.dpi'] = 500
     plt.xlabel('x ($\mu$m)')
     plt.ylabel('Height ($\mu$m)') 
-    plt.legend(('Oil Height','Bubble Height'))
+    plt.legend()
     
     if save_sideprofile == True:
         save_name = file_name + 'side_profile'+str(row)+'.png'
@@ -424,7 +418,7 @@ def droplet_CA(droplet_height):
 
 #%%
 data_wd = 'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/'
-date_taken = '230713'
+date_taken = '230601'
 specific_wd = data_wd + date_taken+ '/'
 os.chdir(specific_wd)
 
@@ -435,7 +429,7 @@ for file in os.listdir(specific_wd):
         
 #%%
         
-file_name = files[26]        
+file_name = files[5]        
 newpath = specific_wd+file_name
 newpath = newpath.replace('.ARDF','')
 if not os.path.exists(newpath):
@@ -448,20 +442,24 @@ save_forcemap = True
 save_heatmap = True
 save_sideprofile = True
 
-x_pos, y_pos = (0,0)
+#%%
 
+
+#%%
 raw, defl, metadict = data_load_in(file_name)
 ExtendsForce, points_per_line, AvExSens, AvRetSens = data_convert(raw, defl, metadict)
-dropin_loc, bubble_height, oil_height = data_process(ExtendsForce, points_per_line)
+dropin_loc, bubble_height, oil_height, bubble_def = data_process(ExtendsForce, points_per_line)
 
+#%%
 heatmap2d(bubble_height,file_name)
 heatmap2d(oil_height,file_name)
 
-
+#%%
+x_pos, y_pos = (4,29)
 forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
 
-
-side_profile([oil_height,bubble_height],0)
+#%%
+side_profile([oil_height,bubble_height],22)
     
     
     #theta = np.zeros(points_per_line)
@@ -473,8 +471,6 @@ side_profile([oil_height,bubble_height],0)
 key_params = [metadict['SpringConstant'],metadict['InvOLS'],AvExSens,AvRetSens,metadict['ScanSize'],points_per_line]
 print(key_params)
 #%%
-original_path = 'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/testdata/'
-files = os.listdir(original_path)
 
 
 
