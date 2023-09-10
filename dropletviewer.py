@@ -182,15 +182,16 @@ def data_process(ExtendsForce,points_per_line):
                     peak_diff_range = dx[peaks[k]:peaks[k+1]]
                     peak_range = y[peaks[k]:peaks[k+1]]
                     #Calculating how much of the values are positive
+                    dy = np.diff(y)
                     derivative_percent = sum(dy[peaks[k]:peaks[k+1]] > 0)/(peaks[k+1]-peaks[k])
                     
                     #Different cases considered for deciding if oil or gas and
                     #assigning it a generic placeholder
                     if derivative_percent > 0.7:
-                        #print('Oil')
+                        #print('Gas')
                         region_type[peaks[k]:peaks[k+1]] = 1
                     elif derivative_percent < 0.3:
-                        #print('Gas')
+                        #print('Oil')
                         region_type[peaks[k]:peaks[k+1]] = 2
                     elif abs(np.min(peak_range)) > 0.1e-8:
                         #print('Gas')
@@ -279,76 +280,13 @@ def heatmap2d(arr, file_name):
     plt.ylabel('y ($\mu$m)')
     plt.xticks(np.arange(0,image_size+1,image_size/4))
     plt.yticks(np.arange(0,image_size+1,image_size/4))
-    plt.title(title)
+    plt.text(0.05,2.3,'a)',transform=ax1.transAxes, fontsize = 14)
+    #plt.title(title)
     if save_heatmap == True:
         save_name = file_name+'heatmap'+'.png'
         plt.savefig(newpath_map + '/' + save_name)
     plt.rcParams['figure.dpi'] = 1000
     plt.show()
-    
-def forcemapplot(data,coords,f_name = ''):
-    """
-    Plots a single force curve. Helps with debugging, as you only consider one
-    force curve at a time. It also converts both of the parameters to nN and um. 
-
-    Parameters
-    ----------
-    data : np.ndarray
-        A single force curve.
-    coords : Tuple
-        The coordinates that correspond to the specific force curve that is being plotted. This will get 
-        included in the naming of the file if it is saved. 
-    file_name : string, optional
-        Name of the file, should be included if saving the figure 
-
-    Returns
-    -------
-    None.
-
-    """
-    #Creating a subfolder in the data folder for the force curves
-    newpath_forcecurve = newpath+'/forcecurve'
-    if not os.path.exists(newpath_forcecurve):
-        os.makedirs(newpath_forcecurve)
-    
-    #Unit conversions
-    x = data[0]/1e-6 
-    y = data[1]/1e-9 
-    
-    coord_x = int(coords[0])
-    coord_y = int(coords[1])
-    jump_in = dropin_loc[coord_x,coord_y]/1e-6
-    bubble_h = bubble_height[coord_x,coord_y]/1e-6
-    oil_h  = oil_height[coord_x,coord_y]/1e-6
-    
-    surface_feature = pd.DataFrame(np.reshape(dropin_loc[dropin_loc > 1e-7],(1,-1)))
-    feature_quantiles = pd.DataFrame.to_numpy(surface_feature.quantile([0.25,0.5,0.9], axis = 1))
-    #print(height)
-    
-    coords = str(coords)
-    
-    #Plotting the force curve
-    
-    plt.figure()
-    plt.plot(x,y,c='tab:blue')
-    plt.xlabel('Separation ($\mu$m)')
-    plt.ylabel('Force (nN)') 
-    plt.rcParams['figure.dpi'] = 500
-    #plt.ylim((min(y)-10,150))
-    plt.xticks(fontsize = 12)
-    plt.yticks(fontsize = 12)
-    #plt.xlim((-0.2,1.2*feature_quantiles[2]*1e6))#Scales the plot limit based on quantiles, not max values
-    #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
-    # plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
-    plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
-    plt.legend()
-    
-    #Saving out the force curve
-    if save_forcemap == True:
-        save_name = file_name + coords + 'forcecurve'+'.png'
-        plt.savefig(newpath_forcecurve + '/' + save_name)
-    plt.show()
-
 
 def side_profile(heights,row,horizontal = True):
     """
@@ -416,6 +354,75 @@ def droplet_CA(droplet_height):
     
     return theta
 
+def forcemapplot(data,coords,f_name = '',peak = []):
+    """
+    Plots a single force curve. Helps with debugging, as you only consider one
+    force curve at a time. It also converts both of the parameters to nN and um. 
+
+    Parameters
+    ----------
+    data : np.ndarray
+        A single force curve.
+    coords : Tuple
+        The coordinates that correspond to the specific force curve that is being plotted. This will get 
+        included in the naming of the file if it is saved. 
+    file_name : string, optional
+        Name of the file, should be included if saving the figure 
+
+    Returns
+    -------
+    None.
+
+    """
+    #Creating a subfolder in the data folder for the force curves
+    newpath_forcecurve = newpath+'/forcecurve'
+    if not os.path.exists(newpath_forcecurve):
+        os.makedirs(newpath_forcecurve)
+    
+    #Unit conversions
+    x = data[0]/1e-6 
+    y = data[1]/1e-9
+    
+    coord_x = int(coords[0])
+    coord_y = int(coords[1])
+    jump_in = dropin_loc[coord_x,coord_y]/1e-6
+    bubble_h = bubble_height[coord_x,coord_y]/1e-6
+    oil_h  = oil_height[coord_x,coord_y]/1e-6
+    
+    surface_feature = pd.DataFrame(np.reshape(dropin_loc[dropin_loc > 1e-7],(1,-1)))
+    feature_quantiles = pd.DataFrame.to_numpy(surface_feature.quantile([0.25,0.5,0.9], axis = 1))
+    #print(height)
+    
+    coords = str(coords)
+    
+    #Plotting the force curve
+    
+    plt.figure()
+    plt.plot(x,y,c='tab:blue', label = '')
+    plt.xlabel('Separation ($\mu$m)')
+    plt.ylabel('Force (nN)') 
+    plt.rcParams['figure.dpi'] = 500
+    #plt.ylim((min(y)-10,150))
+    plt.xticks(fontsize = 12)
+    plt.yticks(fontsize = 12)
+    #plt.xlim((-0.2,1.2*feature_quantiles[2]*1e6))#Scales the plot limit based on quantiles, not max values
+    #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
+    #plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
+    plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
+    # for f in peak:
+    #     plt.axvline(x[f],c = 'darkviolet', label = 'Peak Points')
+    # plt.legend(['_','Peaks in Force Difference'])
+    plt.legend()
+    #plt.xlim((-0.2,2.5))
+    #plt.ylim((-60,50))
+    plt.text(-0.1,1.05,'b)',transform=ax1.transAxes, fontsize = 14)
+    
+    #Saving out the force curve
+    if save_forcemap == True:
+        save_name = file_name + coords + 'forcecurve'+'.png'
+        plt.savefig(newpath_forcecurve + '/' + save_name)
+    plt.show()
+
 #%%
 data_wd = 'C:/Users/Seamu/OneDrive/University/USYD (2021-)/Honours/AFM Data Processing/'
 date_taken = '230601'
@@ -429,7 +436,7 @@ for file in os.listdir(specific_wd):
         
 #%%
         
-file_name = files[5]        
+file_name = files[6]        
 newpath = specific_wd+file_name
 newpath = newpath.replace('.ARDF','')
 if not os.path.exists(newpath):
@@ -438,12 +445,9 @@ if not os.path.exists(newpath):
 metadict = load_ardf.metadict_output(file_name)
 date_taken = metadict["LastSaveForce"][-7:-1]
 
-save_forcemap = True
-save_heatmap = True
-save_sideprofile = True
-
-#%%
-
+save_forcemap = False
+save_heatmap = False
+save_sideprofile = False
 
 #%%
 raw, defl, metadict = data_load_in(file_name)
@@ -452,14 +456,15 @@ dropin_loc, bubble_height, oil_height, bubble_def = data_process(ExtendsForce, p
 
 #%%
 heatmap2d(bubble_height,file_name)
+#%%
 heatmap2d(oil_height,file_name)
 
 #%%
-x_pos, y_pos = (4,29)
+x_pos, y_pos = (45,10)
 forcemapplot(ExtendsForce[x_pos][y_pos],(x_pos,y_pos))
 
 #%%
-side_profile([oil_height,bubble_height],22)
+side_profile([oil_height,bubble_height],0)
     
     
     #theta = np.zeros(points_per_line)
@@ -471,14 +476,74 @@ side_profile([oil_height,bubble_height],22)
 key_params = [metadict['SpringConstant'],metadict['InvOLS'],AvExSens,AvRetSens,metadict['ScanSize'],points_per_line]
 print(key_params)
 #%%
+x,y = ExtendsForce[45][10]
+x = x[~np.isnan(y)]
+y = y[~np.isnan(y)]
+dy = np.diff(y)
+dx = x[:len(dy)]
+dy = savgol_filter(dy, 51, 2)
+peaks = scipy.signal.find_peaks(dy,1e-10, distance = 20, prominence = 1e-11)
+peaks = peaks[0]
+forcemapplot([x,y],(45,10))
+
+#%%
+region_type = np.zeros(len(y))
+for k in range(len(peaks)-1):
+    peak_diff_range = dx[peaks[k]:peaks[k+1]]
+    peak_range = y[peaks[k]:peaks[k+1]]
+    #Calculating how much of the values are positive
+    dy = np.diff(y)
+    derivative_percent = sum(dy[peaks[k]:peaks[k+1]] > 0)/(peaks[k+1]-peaks[k])
+    
+    #Different cases considered for deciding if oil or gas and
+    #assigning it a generic placeholder
+    if derivative_percent > 0.7:
+        #print('Gas')
+        region_type[peaks[k]:peaks[k+1]] = 1
+    elif derivative_percent < 0.3:
+        #print('Oil')
+        region_type[peaks[k]:peaks[k+1]] = 2
+    elif abs(np.min(peak_range)) > 0.1e-8:
+        #print('Gas')
+        region_type[peaks[k]:peaks[k+1]] = 1
+    else:
+        #print('Oil')
+        region_type[peaks[k]:peaks[k+1]] = 2
 
 
+#%%
+forcemapplot([x,y],(8,6))
+forcemapplot([x,region_type],(8,6))
+plt.show()
 
+#%%
+oil_h  = oil_height[45,32]/1e-6
 
-
-
-
-
-
-
-
+f = plt.figure(figsize=(10,4))
+ax1 = f.add_subplot(121)
+ax2 = f.add_subplot(122)
+ax1.plot(x/1e-6,y/1e-9,c='tab:blue', label = '')
+ax1.set_xlabel('Separation ($\mu$m)')
+ax1.set_ylabel('Force (nN)') 
+plt.rcParams['figure.dpi'] = 1000
+#plt.ylim((min(y)-10,150))
+plt.xticks(fontsize = 12)
+plt.yticks(fontsize = 12)
+#plt.xlim((-0.2,1.2*feature_quantiles[2]*1e6))#Scales the plot limit based on quantiles, not max values
+#plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
+# plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
+ax1.axvline(oil_h, c='tab:orange', label = 'Oil Height')
+# for f in peak:
+#     plt.axvline(x[f],c = 'darkviolet', label = 'Peak Points')
+# plt.legend(['_','Peaks in Force Difference'])
+ax1.legend()
+ax1.text(-0.1,1.05,'a)',transform=ax1.transAxes, fontsize = 14)
+#plt.xlim((-0.2,2.5))
+#plt.ylim((-60,50))
+ax2.set_xlabel('Separation ($\mu$m)')
+ax2.set_ylabel('Region Type') 
+ax2.plot(x/1e-6,region_type)
+ax2.axvline(oil_h, c='tab:orange', label = 'Oil Height')
+ax2.legend()
+ax2.text(1.1,1.05,'b)',transform=ax1.transAxes, fontsize = 14)
+plt.tight_layout()
