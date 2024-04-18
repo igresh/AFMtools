@@ -21,6 +21,9 @@ abs_forcecrop = 0.4
 """
 #helloworld
 
+
+
+
 def process_zpos_vs_defl(zpos, defl, metadict=None,
                          defl_units='nm', zpos_units='nm',
                          zpos_negative=True, max_to_process=None,
@@ -384,10 +387,14 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
             number_excluded_by_sens = np.sum(np.logical_not(SensMask))
             if number_excluded_by_sens != 0:
 
-                print (f"The following were excluded on the basis of their optical sensitivity being more than\
-                        two standard deviations away from the mean:\n \
-                        {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
-
+                if drop_deviant_compReg is True:
+                    print (f"The following were excluded on the basis of their optical sensitivity being more than\
+                            two standard deviations away from the mean:\n \
+                            {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
+                else:
+                    print (f"The following were excluded on the basis of their optical sensitivity being more than\
+                                            {drop_deviant_compReg}% away from the mean:\n \
+                                            {number_of_curves_before_equil +  np.ravel(np.argwhere(np.logical_not(SensMask)))}")
                 discard_count += number_excluded_by_sens
 
                 ExtendsForce  = list(compress(ExtendsForce, SensMask))
@@ -682,6 +689,7 @@ def zeroForceCurves(ForceData, **kwargs):
                 comp_len_cutoff = int(compliance.shape[1]/2)
                 FD[0] -= np.mean(compliance[0][:comp_len_cutoff])
             except IndexError:
+                print ('index error in zeroForceCurves')
                 return None
 
     else:
@@ -690,6 +698,7 @@ def zeroForceCurves(ForceData, **kwargs):
             comp_len_cutoff = int(compliance.shape[1]/2)
             ForceData[0] -= np.mean(compliance[0][:comp_len_cutoff])
         except IndexError:
+            print ('index error in zeroForceCurves')
             return None
 
     return ForceData
@@ -714,7 +723,7 @@ def calculateSensitivity(ForceData, **kwargs):
 
 
 
-def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
+def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1, Force_Convert=True):
     """
     Converts the data to separation (if spring constant != 1, also converts to force)
     """
@@ -726,15 +735,20 @@ def ConvertToForceVSep(ForceData, sensitivity=None, spring_constant=1):
 
     ForceData = copy.deepcopy(ForceData)
 
-    if ForceData.ndim == 3:
-        ForceData[:,1] *= sensitivity
-        ForceData[:,0] += ForceData[:, 1]
-        ForceData[:,1] *= spring_constant
+    if Force_Convert:
+        if ForceData.ndim == 3:
+            ForceData[:,1] *= sensitivity
+            ForceData[:,0] += ForceData[:, 1]
+            ForceData[:,1] *= spring_constant
+        else:
+            ForceData[1] *= sensitivity
+            ForceData[0] += ForceData[1]
+            ForceData[1] *= spring_constant
     else:
-        ForceData[1] *= sensitivity
-        ForceData[0] += ForceData[1]
-        ForceData[1] *= spring_constant
-
+        if ForceData.ndim == 3:
+            ForceData[:,0] += ForceData[:, 1]*sensitivity
+        else:
+            ForceData[0] += ForceData[1]*sensitivity
     return ForceData
 
 
