@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib 
 
-from igor import binarywave
+# from igor import binarywave
 
 from matplotlib_scalebar.scalebar import ScaleBar
 from matplotlib import patheffects
