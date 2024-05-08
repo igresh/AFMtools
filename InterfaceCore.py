@@ -15,6 +15,7 @@ from Utility import plotdebug
 from scipy.signal import savgol_filter 
 #from pylab import * 
 import scipy
+from scipy import stats
 
 
 def data_load_in(file_name):
@@ -44,7 +45,8 @@ def data_load_in(file_name):
     #Converts them from lists to numpy arrays
     raw = np.array(raw, dtype = object)
     defl = np.array(defl,dtype = object)
-    
+    # zsnsr = np.array(zsnsr,dtype = object)
+        
     #Calculates the length of each of the deflection data
     fc_datapoints = np.zeros(len(defl))
     for i in range(len(defl)):
@@ -53,6 +55,8 @@ def data_load_in(file_name):
             print('You have less than 200 data points for the '+str(i)+'th forcecurve')
     
     return raw, defl, metadict
+
+
 
 def data_convert(raw, defl, metadict, zero_constant_compliance=True,
                  rotate_map_90=0):
@@ -156,8 +160,8 @@ def data_process(ExtendsForce,points_per_line, debug=False):
     bubble_loc = np.zeros((points_per_line,points_per_line,3270))
     topog = np.zeros((points_per_line,points_per_line))
     
-    # Oil = 1
-    # Gas = 2
+    Oil = 1
+    Gas = 2
 
     for i in range(points_per_line):
         for j in range(points_per_line):
@@ -183,8 +187,9 @@ def data_process(ExtendsForce,points_per_line, debug=False):
             x,y = sanitize_FCdata(ExtendsForce[i][j])
 
             hard_contact = np.min(x)
-            topog[i][j] = hard_contact
             x = x - hard_contact
+            topog[i][j] = hard_contact
+            
     
 
             #Differentiating the data and smoothing
@@ -231,26 +236,28 @@ def data_process(ExtendsForce,points_per_line, debug=False):
   
                     
                     if derivative_percent < 0.6 and force_average > -0.5e-7: # arb - FIXME
-                        region_type[peaks[k]:peaks[k+1]] = 2
+                        region_type[peaks[k]:peaks[k+1]] = Gas
                     
                     else:
-                        region_type[peaks[k]:peaks[k+1]] = 1
+                        region_type[peaks[k]:peaks[k+1]] = Oil
 
     
                 dropin_loc[i][j] = x[peaks[-1]]
             #Using the placeholders to find what height value corresponds to the 
             #top of the bubble and gas
-            if sum(region_type == 2) != 0:
-                bubble_loc = np.where(region_type == 2)
+            if sum(region_type == Gas) != 0:
+                bubble_loc = np.where(region_type == Gas)
                 if x[bubble_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[bubble_loc[0][-1]] = 0
                 bubble_height[i][j] = x[bubble_loc[0][-1]]
+                # bubble_height[i][j] = bubble_height[i][j] + min(bubble_height[~np.isnan(bubble_height)]) 
     
-            if sum(region_type == 1) != 0:
-                oil_loc = np.where(region_type == 1)
+            if sum(region_type == Oil) != 0:
+                oil_loc = np.where(region_type == Oil)
                 if x[oil_loc[0][-1]] > 9e-6: #Just avoiding the initial bit of the force curve
                     x[oil_loc[0][-1]] = 0
                 oil_height[i][j] = x[oil_loc[0][-1]]
+                # oil_height[i][j] = oil_height[i][j] + min(oil_height[~np.isnan(oil_height)])
                 
             debugplotter.plot( curves=[[x,y]], labels=['Fresh'], clear=False, ax=1, color='k', ax_xlabel='Separation (m)')
             debugplotter.plot( curves=[[x, dy_abs]], labels=['abs dy'], clear=False, ax=2, color='r', ax_ylabel='Region Type')
@@ -261,6 +268,8 @@ def data_process(ExtendsForce,points_per_line, debug=False):
     
                 
     return(dropin_loc,bubble_height, oil_height, topog)
+
+
 
 def flatten_planefit (topog_map, verbose=False):
     # logic from https://stackoverflow.com/questions/35005386/fitting-a-plane-to-a-2d-array
@@ -288,6 +297,8 @@ def flatten_planefit (topog_map, verbose=False):
     else:
         return flat_topog
 
+
+
 def sanitize_FCdata (FCdata):
     """
     removes NaNs and smooths 
@@ -300,6 +311,7 @@ def sanitize_FCdata (FCdata):
     
     return x, y
             
+
 
 def calculate_savgol_params(x_axis, polyorder=2):
     spacing = x_axis[1] - x_axis[0] # in meters
@@ -318,6 +330,22 @@ def calculate_savgol_params(x_axis, polyorder=2):
     return {'window_length':window_length,
             'polyorder':polyorder,
             'delta':spacing}
+
+# def RemoveBaseline(x,y):
+#     Partition = int(0.4*len(x))
+#     m, c, _, _, _ = stats.linregress(x[:Partition],y[:Partition])
+#     baseline = x*m + c
+    
+#     return y - baseline
+
+# def RemoveBaselineRetract(x1,y1,x2,y2):
+#     Partition = int(0.4*len(x1))
+#     m, c, _, _, _ = stats.linregress(x1[:Partition],y1[:Partition])
+#     baseline = x2*m + c
+    
+#     return y2 - baseline
+
+
 
 def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatmap=True):
     """
@@ -360,6 +388,8 @@ def heatmap2d(arr, file_name, metadict, newpath='./', postnomial='', save_heatma
     plt.rcParams['figure.dpi'] = 1000
     plt.show()
     
+    
+
 def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height, topog, newpath='./', postnomial='', save_forcemap=True):
     """
     Plots a single force curve. Helps with debugging, as you only consider one
@@ -389,13 +419,15 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
     x = data[0]/1e-6 
     y = data[1]/1e-9 
     
+    x = x[~np.isnan(y)]
+    y = y[~np.isnan(y)]
+    
     coord_x = int(coords[0])
     coord_y = int(coords[1])
-    #jump_in = dropin_loc[coord_x,coord_y]/1e-6
-    bubble_h = bubble_height[coord_x,coord_y]/1e-6
-    oil_h  = oil_height[coord_x,coord_y]/1e-6
-    topog = topog[coord_x,coord_y]/1e-6
-    
+    #jump_in = dropin_loc[coord_x,coord_y]/1e-6 + min(x)
+    bubble_h = bubble_height[coord_x,coord_y]/1e-6 + min(x)
+    oil_h  = oil_height[coord_x,coord_y]/1e-6 + min(x)
+    topog = topog[coord_x,coord_y]/1e-6 + min(x)  
 
     #print(height)
     
@@ -415,7 +447,8 @@ def forcemapplot(data, coords, file_name, dropin_loc, bubble_height, oil_height,
     #plt.axvline(jump_in, c='tab:red', label = 'Initial Jump-in')
     plt.axvline(bubble_h, c='tab:green', label = 'Bubble Height')
     plt.axvline(oil_h, c='tab:orange', label = 'Oil Height')
-    plt.legend()
+    #plt.axvline(topog,c='tab:blue', label = 'Hard Contact')
+    #plt.legend()
     
     #Saving out the force curve
     if save_forcemap == True:
@@ -450,13 +483,16 @@ def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./
         os.makedirs(newpath_sideprofile)
         
     if horizontal == True:
+#        topog_y = heights[-1][row,:]/1e-6
         oil_y = heights[0][row,:]/1e-6
         bubble_y = heights[1][row,:]/1e-6
     else:
+#        topog_y = heights[-1][row,:]/1e-6
         oil_y = heights[0][:,row]/1e-6
         bubble_y = heights[1][row,:]/1e-6
     x = np.linspace(0,int(float(metadict["ScanSize"])/1e-6),points_per_line)
     plt.figure()
+#    plt.plot(x,topog_y,'x-',c='tab:orange', label = 'Topography')
     plt.plot(x,oil_y,'x-',c='tab:blue', label = 'Oil Height')
     plt.plot(x,bubble_y,'x-', c = 'tab:red', label = 'Bubble Height')
     plt.rcParams['figure.dpi'] = 500
@@ -469,6 +505,9 @@ def side_profile(heights, row, metadict, points_per_line, file_name, newpath='./
         plt.savefig(newpath_sideprofile + '/' + save_name)
     plt.show()
     
+    
+
+
 def is_MAC(file_name = '',date_taken = '',mac = True, initiator = False):
     """
     The specific folder path will change depending on if I (Seamus) am working
@@ -488,7 +527,7 @@ def is_MAC(file_name = '',date_taken = '',mac = True, initiator = False):
 
     """
     if mac == True:
-        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Water\230801 Samples'
+        newpath = r'L:\ljam8326 Asylum Research AFM\Infused Teflon Wrinkle Samples in Air\230721 Samples'
     else:
         newpath = r'C:\Users\Seamu\OneDrive\University\USYD (2021-)\Honours\AFM Data Processing/' 
         

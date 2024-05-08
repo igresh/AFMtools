@@ -171,7 +171,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
     debugplotter = plotdebug(debug=debug)
 
 
-    print (f"InvOLS: {invOLS} nm/V, Sfpring constant: {spring_constant}")
+    print (f"InvOLS: {invOLS} nm/V, Spring constant: {spring_constant}")
     if override_invOLS is False:
         print ("Note: invOLS will be calculated from the constant compliance region of each force curve. If this is not desired set override_invOLS=True.")
 
