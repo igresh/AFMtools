@@ -5,8 +5,8 @@ import csv
 import copy
 from scipy.signal import savgol_filter
 
-# from nanoscope import files
-# from nanoscope.constants import FORCE, METRIC, VOLTS, PLT_kwargs, RAW
+from nanoscope import files
+from nanoscope.constants import FORCE, METRIC, VOLTS, PLT_kwargs, RAW
 
 import sys
 sys.path.append('/Users/isaac/Documents/GitHub/AFMtools')
@@ -30,10 +30,17 @@ def PeakforceImport(Filename, output_dir='./Output'):
         -   values.csv (csv file) Relevant imaging parameters.
     """
     arr = []
-    
+
+    if not os.path.exists(output_dir):
+        print ('Creating output directory...')
+        os.mkdir(output_dir)
+            
     name = '.'.join(os.path.basename(Filename).split('.')[:-1])
     print (name)
 
+    if not os.path.exists(f'{output_dir}/{name}'):
+        os.mkdir(f'{output_dir}/{name}')
+    
     with files.PeakforceCaptureFile(Filename) as file:
         image_channel = file.image_channel
         fv_image, ax_properties = image_channel.create_image(METRIC)
@@ -61,12 +68,10 @@ def PeakforceImport(Filename, output_dir='./Output'):
                               'spring constant':image_channel.spring_constant,
                               'optical sensitivity?':image_channel.z_scale_in_sw_units}
     
-    if not os.path.exists(name):
-        os.makedirs(name)
     arr = np.array(arr, dtype=np.float16 )
     
-    np.save(f'{name}/qnmcurves', arr)
-    np.save(f'{name}/image', fv_image)
+    np.save(f'{output_dir}/{name}/qnmcurves', arr)
+    np.save(f'{output_dir}/{name}/image', fv_image)
     
     with open(f'{name}/values.csv', 'w', newline="", encoding='utf-8') as f:  
         writer = csv.DictWriter(f, fieldnames=values_of_interest.keys())
