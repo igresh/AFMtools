@@ -71,9 +71,10 @@ def PeakforceImport(Filename, output_dir='./Output'):
     arr = np.array(arr, dtype=np.float16 )
     
     np.save(f'{output_dir}/{name}/qnmcurves', arr)
-    np.save(f'{output_dir}/{name}/image', fv_image)
-    
-    with open(f'{name}/values.csv', 'w', newline="", encoding='utf-8') as f:  
+    # np.save(f'{output_dir}/{name}/image', fv_image)
+    save_array(data=fv_image, name='image', directory=f'{output_dir}/{name}')
+
+    with open(f'{output_dir}/{name}/values.csv', 'w', newline="", encoding='utf-8') as f:  
         writer = csv.DictWriter(f, fieldnames=values_of_interest.keys())
         writer.writeheader()
         writer.writerow(values_of_interest)
