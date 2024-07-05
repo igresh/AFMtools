@@ -32,7 +32,7 @@ def construct_subplots():
 
 def plot_single_image(ax, cax, data, values, bounds=None, rel_bounds=False, top_right_text='', top_left_text='', cbar_label='Height, nm', ar=1, print_median_value=True, scale_bar_size=None):
     if scale_bar_size:
-        sbsize = np.round(scale_bar_size)
+        sbsize = np.round(float(scale_bar_size))
     else:
         sbsize = np.round(values["scan size"]/3)
 
