@@ -76,7 +76,9 @@ def plot_single_image(ax, cax, data, values, bounds=None, rel_bounds=False, top_
 
     
 
-def plot_images_summary(imagename, dir='Output'):
+def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
+                        topo_scale=4, netrep_scale=2, adh_scale=5, wadh_scale=10,
+                        save=True):
     images, values = open_peakforce_images(imagename, dir=dir)
     ExtendsForce = np.load(f'{dir}/{imagename}/extend_force_curves.npy')
     RetractsForce = np.load(f'{dir}/{imagename}/retract_force_curves.npy')
@@ -85,15 +87,17 @@ def plot_images_summary(imagename, dir='Output'):
 
 
     # Set parameters
-    x,y = 50,50
+    x,y = force_curve_pos
     scans_per_line = 256
     scansize = values['scan size']
     scale = values['scan size']/scans_per_line
 
     xpic, ypic = x*scale, values['scan size']-scale*y
 
-    topo_bounds = [-2,2]
-    netrep_bounds = [-1,1]
+    topo_bounds = [-topo_scale/2,topo_scale/2]
+    netrep_bounds = [-netrep_scale/2,netrep_scale/2]
+    adh_bounds = [-adh_scale/2,adh_scale/2]
+    wadh_bounds = [-wadh_scale/2,wadh_scale/2]
 
     width = scansize*0.1
 
@@ -136,12 +140,12 @@ def plot_images_summary(imagename, dir='Output'):
     force_curve_axis_ret.yaxis.tick_right()
     force_curve_axis_ext.yaxis.set_label_position("right")
     force_curve_axis_ret.yaxis.set_label_position("right")
-    force_curve_axis_ext.text(0.98,0.98,s=f'Approach\npeakforce: {str(np.max(ExtendsForce[x,y, 1]))[:5]} nN\nDistance: {str(np.max(ExtendsForce[x,y, 0]))[:5]} nm', ha='right', va='top', transform=force_curve_axis_ext.transAxes)
+    force_curve_axis_ext.text(0.98,0.98,s=f'Approach\npeakforce: {str(np.max(ExtendsForce[y,x, 1]))[:5]} nN\nDistance: {str(np.max(ExtendsForce[y,x, 0]))[:5]} nm', ha='right', va='top', transform=force_curve_axis_ext.transAxes)
     force_curve_axis_ret.text(0.98,0.98,s='Retract', ha='right', va='top', transform=force_curve_axis_ret.transAxes)
 
     ## Force curve
-    force_curve_axis_ext.scatter(ExtendsForce[x,y, 0], ExtendsForce[x,y, 1], color='k', s=5)
-    force_curve_axis_ret.scatter(RetractsForce[x,y, 0], RetractsForce[x,y, 1], color='k', s=5)
+    force_curve_axis_ext.scatter(ExtendsForce[y,x, 0], ExtendsForce[y,x, 1], color='k', s=5)
+    force_curve_axis_ret.scatter(RetractsForce[y,x, 0], RetractsForce[y,x, 1], color='k', s=5)
     force_curve_axis_ext.set(ylabel='Force, nN',
                              xlim=(-5,60), ybound=(-5,5))
     force_curve_axis_ret.set(ylabel='Force, nN', xlabel='tip-substrate separation, nm',
@@ -150,11 +154,13 @@ def plot_images_summary(imagename, dir='Output'):
     force_curve_axis_ext.axvspan(-1,0, color='k', alpha=0.3)
 
 
+    for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8]:
+        ax.scatter(xpic,ypic, edgecolor='r', facecolor='None')# Figure out how to do offets
+
     # Topography
     image = ImageFuncs.flatten(images['image'], retain_magnitude=True)
     plot_single_image(ax1, ax1cb, image, values, rel_bounds=True, bounds=topo_bounds,
                       top_right_text='', top_left_text='Topography')
-    ax1.scatter(xpic,ypic, edgecolor='r')# Figure out how to do offets
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='gray')
     ax1.add_artist(artist)
 
@@ -163,8 +169,9 @@ def plot_images_summary(imagename, dir='Output'):
     image = ImageFuncs.flatten(images['Retracts Adh'], retain_magnitude=True)
     plot_single_image(ax2, ax2cb, image, values,
                       top_right_text='', top_left_text='Retract max adhesion force',
-                      cbar_label='Force, nN')
-    force_curve_axis_ret.axhline(y=-image[x,y], color='r')
+                      cbar_label='Force, nN',
+                      rel_bounds=True, bounds=adh_bounds,)
+    force_curve_axis_ret.axhline(y=-image[y,x], color='r')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='r')
     ax2.add_artist(artist)
 
@@ -173,7 +180,7 @@ def plot_images_summary(imagename, dir='Output'):
     image = ImageFuncs.flatten(images['jump in'], retain_magnitude=True)
     plot_single_image(ax3, ax3cb, image, values, rel_bounds=True, bounds=topo_bounds,
                       top_right_text='', top_left_text='Jump-in')
-    force_curve_axis_ext.axvline(x=image[x,y], color='xkcd:light blue')
+    force_curve_axis_ext.axvline(x=image[y,x], color='xkcd:light blue')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:light blue')
     ax3.add_artist(artist)
 
@@ -181,39 +188,44 @@ def plot_images_summary(imagename, dir='Output'):
     image = ImageFuncs.flatten(images['pull off'], retain_magnitude=True)
     plot_single_image(ax4, ax4cb, image, values, rel_bounds=True, bounds=topo_bounds,
                       top_right_text='', top_left_text='Jump-off')
-    force_curve_axis_ret.axvline(x=image[x,y], color='xkcd:blue')
+    force_curve_axis_ret.axvline(x=image[y,x], color='xkcd:blue')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:blue')
     ax4.add_artist(artist)
 
     # Work of attraction
     image = ImageFuncs.flatten(images['wadh in'], retain_magnitude=True)
-    plot_single_image(ax5, ax5cb, image, values, top_right_text='', top_left_text='Work of attraction', cbar_label='Work, nJ')
+    plot_single_image(ax5, ax5cb, image, values, top_right_text='',
+                      top_left_text='Work of attraction', cbar_label='Work, nJ',
+                      rel_bounds=True, bounds=wadh_bounds,)
 
     # Work of adhesion
     image = ImageFuncs.flatten(images['wadh off'], retain_magnitude=True)
-    plot_single_image(ax6, ax6cb, image, values, top_right_text='', top_left_text='Work of adhesion', cbar_label='Work, nJ')
+    plot_single_image(ax6, ax6cb, image, values, top_right_text='',
+                      top_left_text='Work of adhesion', cbar_label='Work, nJ',
+                      rel_bounds=True, bounds=wadh_bounds,)
 
 
     # Net repulsion in
     image = ImageFuncs.flatten(images['net rep in'], retain_magnitude=True)
     plot_single_image(ax7, ax7cb, image, values, rel_bounds=True, bounds=netrep_bounds,
                       top_right_text='', top_left_text='Start of net repulsion (approach)')
-    force_curve_axis_ext.axvline(x=image[x,y], color='xkcd:light orange')
+    force_curve_axis_ext.axvline(x=image[y,x], color='xkcd:light orange')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:light orange')
     ax7.add_artist(artist)
 
     image = ImageFuncs.flatten(images['net rep off'], retain_magnitude=True)
     plot_single_image(ax8, ax8cb, image, values, rel_bounds=True, bounds=netrep_bounds,
                       top_right_text='', top_left_text='Start of net repulsion (retract)')
-    force_curve_axis_ret.axvline(x=image[x,y], color='xkcd:orange')
+    force_curve_axis_ret.axvline(x=image[y,x], color='xkcd:orange')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:orange')
     ax8.add_artist(artist)
 
     fig.text(0.02,0.05, s=f'scan size: {values["scan size"]} {values["scan unit"]}, samples per line: {values["samples per line"]}, spring constant: {values["spring constant"]} nN/nm', ha='left', va='bottom')
     fig.text(0.019,0.05, s=f'{imagename}', ha='left', va='top')
 
-    fig.savefig(f'{dir}/{imagename}/image_summary.png', **savefig_settings)
-    fig.savefig(f'{dir}/{imagename}/image_summary.pdf', **savefig_settings)
+    if save:
+        fig.savefig(f'{dir}/{imagename}/image_summary.png', **savefig_settings)
+        fig.savefig(f'{dir}/{imagename}/image_summary.pdf', **savefig_settings)
 
     return fig
 
