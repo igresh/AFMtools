@@ -32,7 +32,7 @@ def construct_subplots():
 
 def plot_single_image(ax, cax, data, values, bounds=None, rel_bounds=False, top_right_text='', top_left_text='', cbar_label='Height, nm', ar=1, print_median_value=True, scale_bar_size=None):
     if scale_bar_size:
-        sbsize = scale_bar_size
+        sbsize = np.round(scale_bar_size)
     else:
         sbsize = np.round(values["scan size"]/3)
 
@@ -250,23 +250,23 @@ def open_peakforce_images(imagename, dir='Output'):
               'samples per line':val_dict['samples per line']}
     
     images = {
-        'image'             :  np.load(f'{path}/image.npy'),
-        'Extends Adh'       :  np.load(f'{path}/extends_adhesion.npy'),
-        'Retracts Adh'      :  np.load(f'{path}/retracts_adhesion.npy'),
-        'wadh off'           :  np.load(f'{path}/work_of_adhesion.npy'),
-        'wadh in'          :  np.load(f'{path}/work_of_attraction.npy'),
-        'jump in'           :  np.load(f'{path}/jump_in.npy'),
-        'pull off'          :  np.load(f'{path}/jump_off.npy'),
-        'net rep in'        :  np.load(f'{path}/net_repulsion_in.npy'),
-        'net rep off'       :  np.load(f'{path}/net_repulsion_off.npy'),
-        'flat image'        :  ImageFuncs.flatten(np.load(f'{path}/image.npy'), retain_magnitude=True),
-        'flat Extends Adh'  :  ImageFuncs.flatten(np.load(f'{path}/extends_adhesion.npy'), retain_magnitude=True),
-        'flat Retracts Adh' :  ImageFuncs.flatten(np.load(f'{path}/retracts_adhesion.npy'), retain_magnitude=True),
-        'flat wadh off'      :  ImageFuncs.flatten(np.load(f'{path}/work_of_adhesion.npy'), retain_magnitude=True),
-        'flat wadh in'     :  ImageFuncs.flatten(np.load(f'{path}/work_of_attraction.npy'), retain_magnitude=True),
-        'flat jump in'      :  ImageFuncs.flatten(np.load(f'{path}/jump_in.npy'), retain_magnitude=True),
-        'flat pull off'     :  ImageFuncs.flatten(np.load(f'{path}/jump_off.npy'), retain_magnitude=True),
-        'flat net rep in'   :  ImageFuncs.flatten(np.load(f'{path}/net_repulsion_in.npy'), retain_magnitude=True),
-        'flat net rep off'  :  ImageFuncs.flatten(np.load(f'{path}/net_repulsion_off.npy'), retain_magnitude=True)}
+        'image'             :  np.load(f'{path}/image.npy').astype('float32'),
+        'Extends Adh'       :  np.load(f'{path}/extends_adhesion.npy').astype('float32'),
+        'Retracts Adh'      :  np.load(f'{path}/retracts_adhesion.npy').astype('float32'),
+        'wadh off'          :  np.load(f'{path}/work_of_adhesion.npy').astype('float32'),
+        'wadh in'           :  np.load(f'{path}/work_of_attraction.npy').astype('float32'),
+        'jump in'           :  np.load(f'{path}/jump_in.npy').astype('float32'),
+        'pull off'          :  np.load(f'{path}/jump_off.npy').astype('float32'),
+        'net rep in'        :  np.load(f'{path}/net_repulsion_in.npy').astype('float32'),
+        'net rep off'       :  np.load(f'{path}/net_repulsion_off.npy').astype('float32'),
+        'flat image'        :  ImageFuncs.flatten(np.load(f'{path}/image.npy').astype('float32'), retain_magnitude=True),
+        'flat Extends Adh'  :  ImageFuncs.flatten(np.load(f'{path}/extends_adhesion.npy').astype('float32'), retain_magnitude=True),
+        'flat Retracts Adh' :  ImageFuncs.flatten(np.load(f'{path}/retracts_adhesion.npy').astype('float32'), retain_magnitude=True),
+        'flat wadh off'     :  ImageFuncs.flatten(np.load(f'{path}/work_of_adhesion.npy').astype('float32'), retain_magnitude=True),
+        'flat wadh in'      :  ImageFuncs.flatten(np.load(f'{path}/work_of_attraction.npy').astype('float32'), retain_magnitude=True),
+        'flat jump in'      :  ImageFuncs.flatten(np.load(f'{path}/jump_in.npy').astype('float32'), retain_magnitude=True),
+        'flat pull off'     :  ImageFuncs.flatten(np.load(f'{path}/jump_off.npy').astype('float32'), retain_magnitude=True),
+        'flat net rep in'   :  ImageFuncs.flatten(np.load(f'{path}/net_repulsion_in.npy').astype('float32'), retain_magnitude=True),
+        'flat net rep off'  :  ImageFuncs.flatten(np.load(f'{path}/net_repulsion_off.npy').astype('float32'), retain_magnitude=True)}
 
     return images, values
