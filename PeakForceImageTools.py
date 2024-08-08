@@ -77,7 +77,7 @@ def plot_single_image(ax, cax, data, values, bounds=None, rel_bounds=False, top_
     
 
 def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
-                        topo_scale=4, jump_scale=4, netrep_scale=2, adh_scale=5, wadh_scale=10,
+                        topo_scale=4, jump_scale=4, netrep_scale=2, adh_scale=5, wadh_scale=20e-9,
                         save=True):
     images, values = open_peakforce_images(imagename, dir=dir)
     ExtendsForce = np.load(f'{dir}/{imagename}/extend_force_curves.npy')
