@@ -77,7 +77,7 @@ def plot_single_image(ax, cax, data, values, bounds=None, rel_bounds=False, top_
     
 
 def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
-                        topo_scale=4, netrep_scale=2, adh_scale=5, wadh_scale=10,
+                        topo_scale=4, jump_scale=4, netrep_scale=2, adh_scale=5, wadh_scale=10,
                         save=True):
     images, values = open_peakforce_images(imagename, dir=dir)
     ExtendsForce = np.load(f'{dir}/{imagename}/extend_force_curves.npy')
@@ -95,6 +95,7 @@ def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
     xpic, ypic = x*scale, values['scan size']-scale*y
 
     topo_bounds = [-topo_scale/2,topo_scale/2]
+    jump_bounds = [-jump_scale/2,jump_scale/2]
     netrep_bounds = [-netrep_scale/2,netrep_scale/2]
     adh_bounds = [-adh_scale/2,adh_scale/2]
     wadh_bounds = [-wadh_scale/2,wadh_scale/2]
@@ -178,7 +179,7 @@ def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
 
     # Jump in
     image = ImageFuncs.flatten(images['jump in'], retain_magnitude=True)
-    plot_single_image(ax3, ax3cb, image, values, rel_bounds=True, bounds=topo_bounds,
+    plot_single_image(ax3, ax3cb, image, values, rel_bounds=True, bounds=jump_bounds,
                       top_right_text='', top_left_text='Jump-in')
     force_curve_axis_ext.axvline(x=image[y,x], color='xkcd:light blue')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:light blue')
@@ -186,7 +187,7 @@ def plot_images_summary(imagename, dir='Output', force_curve_pos=(50,50),
 
     # Jump off
     image = ImageFuncs.flatten(images['pull off'], retain_magnitude=True)
-    plot_single_image(ax4, ax4cb, image, values, rel_bounds=True, bounds=topo_bounds,
+    plot_single_image(ax4, ax4cb, image, values, rel_bounds=True, bounds=jump_bounds,
                       top_right_text='', top_left_text='Jump-off')
     force_curve_axis_ret.axvline(x=image[y,x], color='xkcd:blue')
     artist = mpatches.Rectangle((0, 0), width, width, ec="none", color='xkcd:blue')
