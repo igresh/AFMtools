@@ -190,12 +190,12 @@ def processForceMap(direc):
             rep_off.append(intercept)
 
 
-    jump_in  = np.array(jump_in, dtype=np.float64)
-    pull_off = np.array(pull_off, dtype=np.float64)
-    wadh_in  = -np.array(wadh_in, dtype=np.float64)
-    wadh_off = -np.array(wadh_off, dtype=np.float64)
-    rep_on = np.array(rep_on, dtype=np.float64)
-    rep_off = np.array(rep_off, dtype=np.float64)
+    jump_in  =  np.array(jump_in, dtype=np.float64)
+    pull_off =  np.array(pull_off, dtype=np.float64)
+    wadh_in  = - 1e-9 * np.array(wadh_in, dtype=np.float64) # report value in nJ
+    wadh_off = - 1e-9 * np.array(wadh_off, dtype=np.float64) # report value in nJ
+    rep_on   =  np.array(rep_on, dtype=np.float64)
+    rep_off  =  np.array(rep_off, dtype=np.float64)
 
     
     ExtendsForce = np.reshape(ExtendsForce,(points_per_line,points_per_line,2,-1))
