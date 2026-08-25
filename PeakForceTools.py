@@ -136,7 +136,7 @@ def processForceMap(direc):
         if np.sum(mask)==0:
             wadh_in.append(0)
         else:
-            wadh = np.trapz(newEF[1], newEF[0])
+            wadh = np.trapezoid(newEF[1], newEF[0])
             if not wadh == np.inf:
                 wadh_in.append(wadh)
             else:
@@ -172,7 +172,7 @@ def processForceMap(direc):
         if np.sum(mask)==0:
             wadh_off.append(0)
         else:
-            wadh = np.trapz(newRF[1], newRF[0])
+            wadh = np.trapezoid(newRF[1], newRF[0])
             if not wadh == np.inf:
                 wadh_off.append(wadh)
             else:
