@@ -309,7 +309,7 @@ def process_zpos_vs_defl(zpos, defl, metadict=None,
         elif data_sanitary is False:
             print(f"entry {number_of_curves_before_equil + idx} Failed on Force conversion")
 
-        if np.any(ExtendForce) == None:
+        if ExtendForce is None:
             print ('baseline curve' , data_sanitary, (number_of_curves_before_equil + idx), RetractForce)
 
         #Clean up data, one last time
@@ -475,14 +475,32 @@ def is_data_sanitary(data, data_sanitary=True):
     any processing.
     """
     if data_sanitary is True:
-        for datum in data:
-            if np.any(datum) == None:
+        for idx, datum in enumerate(data):
+            if datum is None:
+                print(f"  [Sanity Check] Fail: datum at index {idx} is None")
                 return False
-            elif np.any(np.isnan(datum)):
+            if isinstance(datum, (list, tuple)):
+                if any(x is None for x in datum):
+                    print(f"  [Sanity Check] Fail: datum at index {idx} contains None elements: {datum}")
+                    return False
+            if isinstance(datum, np.ndarray) and datum.dtype == object:
+                if np.any(datum == None):
+                    print(f"  [Sanity Check] Fail: datum at index {idx} is an object array containing None")
+                    return False
+            
+            try:
+                if np.any(np.isnan(datum)):
+                    print(f"  [Sanity Check] Fail: datum at index {idx} contains NaN values")
+                    return False
+            except TypeError as te:
+                print(f"  [Sanity Check] Fail: datum at index {idx} is non-numeric (Type Error: {te})")
                 return False
-            elif np.ndim(datum) == 1 and datum.shape[0] < 100:
+
+            if np.ndim(datum) == 1 and datum.shape[0] < 100:
+                print(f"  [Sanity Check] Fail: 1D datum at index {idx} has length {datum.shape[0]} < 100")
                 return False
             elif np.ndim(datum) == 2 and datum.shape[1] < 100:
+                print(f"  [Sanity Check] Fail: 2D datum at index {idx} has shape {datum.shape} < 100 points")
                 return False
 
         return True
@@ -634,7 +652,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
 
     smoothygrad = np.abs(savgol_filter(Y, window_length, 1, deriv=1))
 
-    if np.any(bonus_ForceData) == None:
+    if bonus_ForceData is None:
         gradient_cutoff = np.median(smoothygrad[Partition_mask])
         gradient_mask = smoothygrad < gradient_cutoff
         mask = np.logical_and(Partition_mask, gradient_mask)
@@ -653,7 +671,7 @@ def RemoveBaseline_nOrder(ForceData, order=3, approachFraction=0.2, bonus_ForceD
             # If the start of the constant compliance region is less than zero, process has failed
             return None, None
 
-        if np.any(bonus_ForceData) == None:
+        if bonus_ForceData is None:
             return copy.deepcopy(np.array([X, OffsetY]))
         else:
             baseline = polynomial.polyval(bonus_ForceData[0], fit_params)

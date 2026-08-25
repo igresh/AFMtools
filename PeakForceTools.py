@@ -5,8 +5,8 @@ import csv
 import copy
 from scipy.signal import savgol_filter
 
-from nanoscope import files
-from nanoscope.constants import FORCE, METRIC, VOLTS, PLT_kwargs, RAW
+# from nanoscope import files
+# from nanoscope.constants import FORCE, METRIC, VOLTS, PLT_kwargs, RAW
 
 import sys
 sys.path.append('/Users/isaac/Documents/GitHub/AFMtools')
