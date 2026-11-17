@@ -1,80 +1,63 @@
-# import nanoscope as ns
 import numpy as np
 import os
 import csv
 import copy
 from scipy.signal import savgol_filter
 
-# from nanoscope import files
-# from nanoscope.constants import FORCE, METRIC, VOLTS, PLT_kwargs, RAW
-
 import sys
-sys.path.append('/Users/isaac/Documents/GitHub/AFMtools')
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import ForceCurveFuncs
 import ImageFuncs
+import BrukerFiles
+
 
 def PeakforceImport(Filename, output_dir='./Output'):
     """
-    Uses the nanoscope module (provided by bruker) to open the peakforce data files.
+    Opens a Bruker PeakForce Capture (.pfc) file and exports it to numpy files.
+
+    Uses BrukerFiles (pure Python, works on macOS/Linux/Windows). This replaces
+    Bruker's Windows-only ``nanoscope`` module and produces the same output.
 
     Creates a new directory in the output_dir folder using the name of the peakforce
     file. The directory contains the following files:
         -   image.npy (numpy binary) the raw image from the 'image channel'.
             A NxN array containing the topography (height) of the substrate, where N
             is the scan size
-            
+
         -   qnmcurves.npy (numpy binary) the force curves for the image.
-            A NxNxYx2 array where N is the scan size and Y is the number of datapoints
-            in each force curve.
+            A (N*N)x4xY array where N is the scan size and Y is the number of datapoints
+            in each force curve. The 4 rows are separation (trace), force (trace),
+            separation (retrace), force (retrace), in nm and nN.
 
         -   values.csv (csv file) Relevant imaging parameters.
     """
-    arr = []
-
     if not os.path.exists(output_dir):
         print ('Creating output directory...')
         os.mkdir(output_dir)
-            
+
     name = '.'.join(os.path.basename(Filename).split('.')[:-1])
     print (name)
 
     if not os.path.exists(f'{output_dir}/{name}'):
         os.mkdir(f'{output_dir}/{name}')
-    
-    with files.PeakforceCaptureFile(Filename) as file:
-        image_channel = file.image_channel
-        fv_image, ax_properties = image_channel.create_image(METRIC)
-    
-        spl = image_channel.samples_per_line
-        lines = image_channel.number_of_lines
-    
-        fc_channel = file.force_curves_channel
-        fv_pixels = fc_channel.number_of_force_curves
-    
-        for pix_idx in range(fv_pixels):
-            fz_plot_bl, _ = fc_channel.create_force_z_plot(pix_idx, FORCE)
-            fs_plot_bl = fc_channel.compute_separation(fz_plot_bl, FORCE)
-    
-            arr.append([fs_plot_bl.trace.x,
-                        fs_plot_bl.trace.y,
-                        fs_plot_bl.retrace.x,
-                        fs_plot_bl.retrace.y])
-    
-    
-        values_of_interest = {'image scan size':image_channel.scan_size,
-                              'image scan size unit':image_channel.scan_size_unit,
-                              'image line number':image_channel.number_of_lines,
-                              'samples per line':image_channel.samples_per_line,
-                              'spring constant':image_channel.spring_constant,
-                              'optical sensitivity?':image_channel.z_scale_in_sw_units}
-    
-    arr = np.array(arr, dtype=np.float16 )
-    
+
+    file = BrukerFiles.PeakForceCaptureFile(Filename)
+    image_channel = file.image_channel
+    fv_image = image_channel.data
+
+    arr = file.force_separation_curves().astype(np.float16)
+
+    values_of_interest = {'image scan size':file.scan_size,
+                          'image scan size unit':file.scan_size_unit,
+                          'image line number':file.number_of_lines,
+                          'samples per line':file.samples_per_line,
+                          'spring constant':file.spring_constant,
+                          'optical sensitivity?':image_channel.z_scale_in_sw_units}
+
     np.save(f'{output_dir}/{name}/qnmcurves', arr)
-    # np.save(f'{output_dir}/{name}/image', fv_image)
     save_array(data=fv_image, name='image', directory=f'{output_dir}/{name}')
 
-    with open(f'{output_dir}/{name}/values.csv', 'w', newline="", encoding='utf-8') as f:  
+    with open(f'{output_dir}/{name}/values.csv', 'w', newline="", encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=values_of_interest.keys())
         writer.writeheader()
         writer.writerow(values_of_interest)
