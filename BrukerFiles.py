@@ -37,7 +37,7 @@ import warnings
 
 import numpy as np
 
-__all__ = ['read_header', 'NanoscopeFile', 'PeakForceCaptureFile', 'ImageChannel',
+__all__ = ['read_header', 'is_cloud_only', 'NanoscopeFile', 'PeakForceCaptureFile', 'ImageChannel',
            'load_spm', 'open_spm']
 
 
@@ -59,16 +59,33 @@ _VALUE_RE = re.compile(
     r'(?P<value>[-+\d.eE]+)\s*(?P<unit>.*)$')
 
 
+_MAX_HEADER = 8 << 20   # NanoScope headers are well under 1 MB
+
+
 def _read_raw_header(path):
     with open(path, 'rb') as fh:
         chunk = fh.read(1 << 16)
-        while _HEADER_END not in chunk:
-            more = fh.read(1 << 16)
-            if not more:
-                raise ValueError(f'{path} does not look like a Bruker NanoScope file '
-                                 '(no "\\*File list end" marker).')
-            chunk += more
-    return chunk[:chunk.index(_HEADER_END)].decode('latin-1')
+        if not chunk.startswith((b'\\*File list', b'\\*Force file list')):
+            raise ValueError(f'{path} does not look like a Bruker NanoScope file.')
+        # The first section's 'Data length' is the header length.
+        m = re.search(rb'\\Data length: (\d+)', chunk)
+        size = min(int(m.group(1)), _MAX_HEADER) if m else _MAX_HEADER
+        if len(chunk) < size:
+            chunk += fh.read(size - len(chunk))
+    end = chunk.find(_HEADER_END)
+    if end < 0:
+        raise ValueError(f'{path} does not look like a Bruker NanoScope file '
+                         '(no "\\*File list end" marker in the header).')
+    return chunk[:end].decode('latin-1')
+
+
+def is_cloud_only(path):
+    """
+    True if ``path`` is an iCloud (or other File Provider) placeholder whose
+    data has not been downloaded. Reading it would trigger a download.
+    """
+    SF_DATALESS = 0x40000000
+    return bool(getattr(os.stat(path), 'st_flags', 0) & SF_DATALESS)
 
 
 def read_header(path):
