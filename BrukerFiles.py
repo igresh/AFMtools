@@ -33,6 +33,7 @@ Quick start
 
 import os
 import re
+import warnings
 
 import numpy as np
 
@@ -313,6 +314,22 @@ class NanoscopeFile:
         return self._sens.get(name)
 
     @property
+    def microscope_mode(self):
+        """Acquisition mode, e.g. 'Tapping', 'Contact', 'PeakForce QNM'."""
+        m = re.search(r'"(.*)"', self.param('@MicroscopeList', ''))
+        return m.group(1) if m else ''
+
+    @property
+    def has_force_data(self):
+        return any(p.get('Data type') == 'FORCE' for p in self.sections('Ciao force image list'))
+
+    @property
+    def is_peakforce(self):
+        """True if the file was acquired in a PeakForce-based mode (sinusoidal Z)."""
+        mode = self.param('@MicroscopeList', '')
+        return bool(re.search(r'peak\s*force|softharmonix|scanasyst', mode, re.I))
+
+    @property
     def channel_names(self):
         return [c.data_type_desc for c in self.channels]
 
@@ -352,6 +369,13 @@ class PeakForceCaptureFile(NanoscopeFile):
         fsecs = self.sections('Ciao force image list')
         if not fsecs:
             raise ValueError(f'{self.path} has no force curve data (not a PeakForce Capture file).')
+        if not self.is_peakforce:
+            raise ValueError(
+                f'{self.path} contains force curves, but was acquired in '
+                f'{self.microscope_mode or "an unknown"} mode, not PeakForce. '
+                'PeakForceCaptureFile assumes the sinusoidal PeakForce Z motion and would '
+                'give wrong separations for this file. Its images can still be read '
+                'with NanoscopeFile.')
         self.force_params = fsecs[0]
         fp = self.force_params
 
@@ -364,6 +388,11 @@ class PeakForceCaptureFile(NanoscopeFile):
         spl = [int(s) for s in fp['Samps/line'].split()]
         self.samples_trace = spl[0]
         self.samples_retrace = spl[1] if len(spl) > 1 else spl[0]
+        if self.samples_trace != self.samples_retrace:
+            raise ValueError(
+                f'{self.path}: trace and retrace have different lengths '
+                f'({self.samples_trace} vs {self.samples_retrace}); this is not the '
+                'PeakForce Capture layout this reader was validated on.')
         self.samples_per_curve = self.samples_trace + self.samples_retrace
         self.number_of_force_curves = self._force_length // (self._force_bpp * self.samples_per_curve)
 
@@ -495,10 +524,22 @@ class PeakForceCaptureFile(NanoscopeFile):
 # ---------------------------------------------------------------------------
 
 def open_spm(path):
-    """Open any NanoScope file, returning PeakForceCaptureFile for .pfc files."""
+    """
+    Open any NanoScope file.
+
+    Returns PeakForceCaptureFile for PeakForce Capture files, otherwise
+    NanoscopeFile. Files holding force curves from a non-PeakForce mode
+    (force volume, force ramps) open as NanoscopeFile with a warning:
+    their images are fine, but their force curves are not supported.
+    """
     nf = NanoscopeFile(path)
-    if nf.sections('Ciao force image list') and nf.section('Ciao force image list').get('Data type') == 'FORCE':
-        return PeakForceCaptureFile(path)
+    if nf.has_force_data:
+        if nf.is_peakforce:
+            return PeakForceCaptureFile(path)
+        warnings.warn(
+            f'{os.path.basename(nf.path)} contains force curves from '
+            f'{nf.microscope_mode or "an unknown"} mode. Only PeakForce Capture curves '
+            'are supported; opening the image channels only.', stacklevel=2)
     return nf
 
 
